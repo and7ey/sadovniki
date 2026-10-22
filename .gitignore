@@ -1,0 +1,23 @@
+# Source assets (too large for git)
+*.fbx
+*.blend
+*.blend1
+3ds_max/
+blender_test/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Backups / scratch
+viewer/backup/
+.DS_Store
+
+# Big reference renders
+*_hires.png
+
+# scratch / reference
+5_3_*
+plan*.jpg
+plan*.png
+background.png

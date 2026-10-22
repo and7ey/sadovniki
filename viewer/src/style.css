@@ -1,0 +1,200 @@
+:root {
+  --ink: #1d2733;
+  --ink-soft: #5d6b7a;
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.9);
+  --accent: #2f5cff;
+  --shadow: 0 10px 30px rgba(28, 50, 84, 0.14), 0 2px 6px rgba(28, 50, 84, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--ink);
+  background: #dfe8f3;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app, #app canvas { position: fixed; inset: 0; display: block; }
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(16px, 3vw, 34px);
+}
+
+.title h1 {
+  margin: 0;
+  font-size: clamp(22px, 2.4vw, 32px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.title p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  letter-spacing: 0.01em;
+}
+
+.controls {
+  position: absolute;
+  top: clamp(16px, 3vw, 34px);
+  right: clamp(16px, 3vw, 34px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  pointer-events: auto;
+}
+
+.controls .divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: rgba(29, 39, 51, 0.12);
+}
+
+button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  padding: 9px 14px;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+}
+
+button:hover { background: rgba(29, 39, 51, 0.06); color: var(--ink); }
+button:active { transform: scale(0.97); }
+
+button.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(28, 50, 84, 0.14);
+}
+
+.hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-self: center;
+  padding: 10px 18px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  opacity: 1;
+  transition: opacity 0.6s ease;
+}
+
+.hint b { color: var(--ink); font-weight: 600; }
+.hint.fade { opacity: 0.55; }
+
+.selected {
+  position: absolute;
+  left: clamp(16px, 3vw, 34px);
+  bottom: clamp(16px, 3vw, 34px);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(90vw, 620px);
+  padding: 9px 14px;
+  border-radius: 13px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  font-size: 12.5px;
+  pointer-events: none;
+}
+
+.selected[hidden] { display: none; }
+
+.selected-label { color: var(--ink-soft); white-space: nowrap; }
+
+.selected code {
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.85);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-size { color: var(--ink-soft); white-space: nowrap; }
+
+#loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #dfe8f3;
+  z-index: 20;
+  transition: opacity 0.7s ease, visibility 0.7s;
+}
+
+#loader.done { opacity: 0; visibility: hidden; }
+
+.loader-inner { display: grid; justify-items: center; gap: 16px; }
+
+.loader-ring {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid rgba(29, 39, 51, 0.12);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.loader-text {
+  font-size: 13px;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  .controls {
+    top: auto;
+    bottom: 84px;
+    right: 50%;
+    transform: translateX(50%);
+  }
+  button { padding: 8px 10px; font-size: 12px; }
+  .hint { gap: 12px; font-size: 11.5px; }
+  .selected {
+    left: 50%;
+    bottom: 140px;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 32px);
+  }
+}

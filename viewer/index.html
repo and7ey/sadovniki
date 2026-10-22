@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Квартира — 3D</title>
+  <link rel="stylesheet" href="./src/style.css?v=2" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud">
+    <header class="title">
+      <h1>Квартира</h1>
+      <p>интерактивная 3D-модель</p>
+    </header>
+
+    <div class="controls">
+      <button id="btn-iso" class="active" title="Изометрический вид">Изометрия</button>
+      <button id="btn-top" title="Вид сверху">Сверху</button>
+      <span class="divider"></span>
+      <button id="btn-walls" title="Показать/скрыть стены">Стены</button>
+      <button id="btn-rotate" title="Автовращение">Вращение</button>
+    </div>
+
+    <div id="selected" class="selected" hidden>
+      <span class="selected-label">Выбрано</span>
+      <code id="selected-id"></code>
+      <span id="selected-size" class="selected-size"></span>
+    </div>
+
+    <div class="hint">
+      <span><b>ЛКМ</b> — вращать</span>
+      <span><b>Колесо</b> — масштаб</span>
+      <span><b>ПКМ</b> — сдвинуть</span>
+      <span><b>Клик</b> — выбрать объект</span>
+    </div>
+  </div>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-ring"></div>
+      <div class="loader-text">Загружаем квартиру… <span id="progress">0%</span></div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+  <script type="module" src="./src/main.js?v=28"></script>
+</body>
+</html>
