@@ -321,7 +321,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=6',
+  './public/apartment.glb?v=7',
   (gltf) => {
     apartment = gltf.scene;
 
