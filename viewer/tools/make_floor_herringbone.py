@@ -10,6 +10,7 @@ Output: tools/floor_herringbone.jpg  +  tools/floor_herringbone.json (mapping
 info used by export_glb.py).
 """
 import json
+import math
 import os
 
 import numpy as np
@@ -27,6 +28,12 @@ MARGIN = 0.25   # metres of texture beyond the floor edge
 
 PLANK_L = 0.600   # 600 mm along the grain
 PLANK_W = 0.125   # 125 mm across
+
+# the whole layout is turned counter-clockwise by this angle (0 = planks run
+# parallel to the walls)
+ROTATE_DEG = 45.0
+COS = math.cos(math.radians(ROTATE_DEG))
+SIN = math.sin(math.radians(ROTATE_DEG))
 
 TEX_W = 4096
 
@@ -78,6 +85,18 @@ extra = int(np.ceil(r1 * S * PLANK_W / BANDW)) + 3
 k0 = int(np.floor(minx / BANDW)) - 2 - extra
 k1 = int(np.ceil(maxx / BANDW)) + 2 + extra
 
+# when the pattern is turned, planks from outside the texture rectangle swing
+# into view: widen the generated area to the texture's circumscribed square
+CX, CY = (minx + maxx) / 2, (miny + maxy) / 2
+DIAG = ((maxx - minx) ** 2 + (maxy - miny) ** 2) ** 0.5
+if ROTATE_DEG % 180:
+    pad = DIAG / 2
+    r0 = int(np.floor((CY - pad) / PLANK_W)) - 1
+    r1 = int(np.ceil((CY + pad) / PLANK_W)) + 8
+    extra = int(np.ceil(abs(r1) * S * PLANK_W / BANDW)) + 3
+    k0 = int(np.floor((CX - pad) / BANDW)) - 2 - extra
+    k1 = int(np.ceil((CX + pad) / BANDW)) + 2 + extra
+
 planks = []   # (x0, y0, x1, y1, is_vertical)
 for k in range(k0, k1):
     for r in range(r0, r1):
@@ -88,12 +107,17 @@ for k in range(k0, k1):
         # vertical plank filler at that column
         planks.append((ex, y, ex + PLANK_W, y + PLANK_L, True))
 
-# keep only planks intersecting the texture area (with a small bleed)
+# keep only planks that can reach the texture area (with a small bleed); when
+# the layout is turned, that area is the texture's circumscribed square
+keep_minx, keep_maxx, keep_miny, keep_maxy = minx - 0.4, maxx + 0.4, miny - 0.4, maxy + 0.4
+if ROTATE_DEG % 180:
+    keep_minx, keep_maxx = CX - DIAG / 2 - 0.4, CX + DIAG / 2 + 0.4
+    keep_miny, keep_maxy = CY - DIAG / 2 - 0.4, CY + DIAG / 2 + 0.4
 keep = []
 for p in planks:
-    if p[2] <= minx - 0.4 or p[0] >= maxx + 0.4:
+    if p[2] <= keep_minx or p[0] >= keep_maxx:
         continue
-    if p[3] <= miny - 0.4 or p[1] >= maxy + 0.4:
+    if p[3] <= keep_miny or p[1] >= keep_maxy:
         continue
     keep.append(p)
 planks = keep
@@ -137,15 +161,27 @@ for (x0, y0, x1, y1, vertical) in planks:
     tint = rng.normal(0.0, 0.007, 3)
     arr = arr * gain + (arr.mean(axis=(0, 1)) * tint)
     np.clip(arr, 0, 255, out=arr)
-    plank = Image.fromarray(arr.astype(np.uint8))
-
-    px, py = to_px(x0, y1)
-    px, py = int(round(px)), int(round(py))
-    canvas.paste(plank, (px, py))
+    plank = Image.fromarray(arr.astype(np.uint8)).convert('RGBA')
 
     # seam: thin dark line on the plank's own edge
-    edge = tuple(int(v) for v in (np.asarray(plank).reshape(-1, 3).mean(axis=0) * 0.82))
-    draw.rectangle([px, py, px + w - 1, py + h - 1], outline=edge)
+    edge = tuple(int(v) for v in (np.asarray(plank).reshape(-1, 4)[:, :3].mean(axis=0) * 0.82))
+    ImageDraw.Draw(plank).rectangle([0, 0, w - 1, h - 1], outline=edge + (255,))
+
+    if ROTATE_DEG % 360:
+        # turn the plank about its own centre; the layout above is unchanged, so
+        # the joints still meet exactly and only the whole carpet is rotated
+        plank = plank.rotate(ROTATE_DEG, resample=Image.BICUBIC, expand=True)
+        cwx, cwy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        dx, dy = cwx - CX, cwy - CY
+        rx = CX + dx * COS - dy * SIN
+        ry = CY + dx * SIN + dy * COS
+    else:
+        rx, ry = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+
+    px, py = to_px(rx, ry)
+    px = int(round(px - plank.width / 2.0))
+    py = int(round(py - plank.height / 2.0))
+    canvas.paste(plank, (px, py), plank)
 
 print('rendered planks')
 

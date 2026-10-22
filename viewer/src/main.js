@@ -18,7 +18,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 0.92;
+renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
@@ -43,11 +43,12 @@ controls.autoRotateSpeed = 0.7;
  * ------------------------------------------------------------------ */
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
-scene.environmentIntensity = 0.38;
+scene.environmentIntensity = 0.07;
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb9c6d6, 0.8));
+// night: the room is lit by a cool moonlit sky and the pendant lamps
+scene.add(new THREE.HemisphereLight(0x2f4570, 0x060a12, 0.42));
 
-const key = new THREE.DirectionalLight(0xfff4e6, 1.95);
+const key = new THREE.DirectionalLight(0x9fbde9, 0.52);
 key.position.set(9, 17, 11);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
@@ -62,11 +63,11 @@ key.shadow.normalBias = 0.025;
 key.shadow.radius = 3;
 scene.add(key, key.target);
 
-const fill = new THREE.DirectionalLight(0xdbe8ff, 0.55);
+const fill = new THREE.DirectionalLight(0x2b3f63, 0.16);
 fill.position.set(-11, 9, -9);
 scene.add(fill);
 
-const rim = new THREE.DirectionalLight(0xffffff, 0.5);
+const rim = new THREE.DirectionalLight(0x7fa2d8, 0.26);
 rim.position.set(-4, 6, 13);
 scene.add(rim);
 
@@ -79,9 +80,9 @@ function makeBackground() {
   c.height = 512;
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0.0, '#b9cde4');
-  g.addColorStop(0.45, '#dbe7f4');
-  g.addColorStop(1.0, '#f5f8fc');
+  g.addColorStop(0.0, '#05080f');
+  g.addColorStop(0.45, '#0e1728');
+  g.addColorStop(1.0, '#1d2b45');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 512);
   const tex = new THREE.CanvasTexture(c);
@@ -239,12 +240,12 @@ function setupLamps() {
       new THREE.MeshBasicMaterial({
         color: 0xffd7a0,
         transparent: true,
-        opacity: 0.9,
+        opacity: 1.0,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
     );
-    glow.position.set(center.x, box.min.y + 0.03, center.z);
+    glow.position.set(center.x, box.min.y - 0.015, center.z);
     glow.visible = false;
     glow.renderOrder = 5;
     scene.add(glow);
@@ -252,8 +253,10 @@ function setupLamps() {
     // 60 W incandescent: warm 2700 K point light at the bulb centre.
     // It casts shadows (walls occlude it), but the shadow map is only rebuilt
     // when the lamp is switched on, so there is no per-frame cost.
-    const light = new THREE.PointLight(0xffb46b, 0, 9, 2);
-    light.position.set(center.x, box.min.y + 0.15, center.z);
+    // the bulb sits just below the shade, otherwise the shade itself would
+    // swallow the light and the room would stay dark
+    const light = new THREE.PointLight(0xffb46b, 0, 12, 2);
+    light.position.set(center.x, box.min.y - 0.07, center.z);
     light.castShadow = true;
     light.shadow.mapSize.set(1024, 1024);
     light.shadow.bias = -0.0032;
@@ -276,11 +279,11 @@ function toggleLamp(id) {
   st.on = !st.on;
   st.glow.visible = st.on;
   st.light.visible = st.on;
-  st.light.intensity = st.on ? 9 : 0;
+  st.light.intensity = st.on ? 20 : 0;
   if (st.on) st.light.shadow.needsUpdate = true;
   if (st.base) {
-    st.base.emissive.set(st.on ? 0xffc078 : 0x000000);
-    st.base.emissiveIntensity = st.on ? 0.45 : 0;
+    st.base.emissive.set(st.on ? 0xffcb8a : 0x000000);
+    st.base.emissiveIntensity = st.on ? 1.0 : 0;
   }
   console.log('[lamp]', id, st.on ? 'ON' : 'OFF');
   return true;
@@ -321,7 +324,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=7',
+  './public/apartment.glb?v=9',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -421,7 +424,7 @@ loader.load(
     slab = new THREE.Mesh(
       geo,
       new THREE.MeshStandardMaterial({
-        color: new THREE.Color('#e4eaf3'),
+        color: new THREE.Color('#22304a'),
         roughness: 0.95,
         metalness: 0.0,
       })
@@ -737,6 +740,7 @@ function initUI() {
     deselect,
     lamps: lampStates,
     toggleLamp,
+    weather: setWeather,
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
@@ -746,6 +750,100 @@ function initUI() {
     },
   };
 }
+
+
+/* ------------------------------------------------------------------ *
+ *  Weather widget — Home Assistant pushes the current conditions here
+ *  window.setApartmentWeather({ temp: 8, state: 'Облачно', icon: 'cloudy' })
+ * ------------------------------------------------------------------ */
+const WEATHER_SVG = {
+  cloudy:
+    '<path d="M13.6 34h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 34Z"/>',
+  partly:
+    '<circle cx="18.5" cy="18" r="6.2"/>' +
+    '<path d="M18.5 5.5v3M18.5 27.5v3M7 18h3M27 18h3M9.9 9.4l2.1 2.1M27.1 26.6l2.1 2.1M27.1 9.4l-2.1 2.1M9.9 26.6l2.1 2.1"/>' +
+    '<path d="M21.5 38.5h13a5.1 5.1 0 0 0 .4-10.17 7.5 7.5 0 0 0-14.3-.85 5.3 5.3 0 0 0 .9 11Z"/>',
+  sunny:
+    '<circle cx="24" cy="24" r="8.4"/>' +
+    '<path d="M24 6.4v4.1M24 37.5v4.1M6.4 24h4.1M37.5 24h4.1M11.6 11.6l2.9 2.9M33.5 33.5l2.9 2.9M33.5 11.6l-2.9 2.9M11.6 33.5l2.9 2.9"/>',
+  rain:
+    '<path d="M13.6 30h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 30Z"/>' +
+    '<path d="M17 35.5l-1.6 4.2M24.5 35.5l-1.6 4.2M32 35.5l-1.6 4.2"/>',
+  snow:
+    '<path d="M13.6 30h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 30Z"/>' +
+    '<path d="M17.5 36v4M15.6 37l3.8 2M19.4 37l-3.8 2M30.5 36v4M28.6 37l3.8 2M32.4 37l-3.8 2"/>',
+  storm:
+    '<path d="M13.6 29h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 29Z"/>' +
+    '<path d="M25 32.5l-5.4 7.2h5l-1.9 5.3 6.8-7.9h-5.1l.6-4.6Z"/>',
+  fog:
+    '<path d="M13.6 27h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 27Z"/>' +
+    '<path d="M10 34h24M14 39.5h17"/>',
+};
+
+const WEATHER_ICON_MAP = [
+  [/гроз|thunder|storm|lightning/, 'storm'],
+  [/снег|snow|sleet|hail/, 'snow'],
+  [/дожд|rain|shower|drizzle/, 'rain'],
+  [/туман|fog|mist|haze/, 'fog'],
+  [/ясн|солн|clear|sunny/, 'sunny'],
+  [/малооблач|переменн|partly/, 'partly'],
+  [/обл|cloud|пасмур|overcast/, 'cloudy'],
+];
+
+const weatherRoot = document.getElementById('weather');
+const weatherTempEl = document.getElementById('weather-temp');
+const weatherStateEl = document.getElementById('weather-state');
+const weatherIconEl = document.getElementById('weather-icon');
+
+function weatherIconKey(word) {
+  const w = String(word || '').toLowerCase();
+  for (const [re, key] of WEATHER_ICON_MAP) if (re.test(w)) return key;
+  return 'cloudy';
+}
+
+function weatherIconMarkup(key) {
+  return (
+    '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (WEATHER_SVG[key] || WEATHER_SVG.cloudy) +
+    '</svg>'
+  );
+}
+
+function formatTemp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.'));
+  if (!Number.isFinite(n)) return String(value);
+  return `${Math.round(n * 10) / 10} °C`;
+}
+
+/**
+ * Update the header widget.
+ * @param {{temp?: number|string, state?: string, icon?: string, stale?: boolean}} data
+ */
+function setWeather(data = {}) {
+  if (!weatherRoot) return false;
+  const { temp, state, icon, stale } = data;
+
+  const t = formatTemp(temp);
+  if (t !== null && weatherTempEl) weatherTempEl.textContent = t;
+  if (state && weatherStateEl) weatherStateEl.textContent = String(state);
+
+  if (weatherIconEl) {
+    const key = weatherIconKey(icon || state);
+    weatherIconEl.innerHTML = weatherIconMarkup(key);
+  }
+  weatherRoot.classList.toggle('stale', Boolean(stale));
+  weatherRoot.dataset.updated = String(Date.now());
+  return true;
+}
+
+window.setApartmentWeather = setWeather;
+window.addEventListener('message', (event) => {
+  const d = event.data;
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'apartment-weather') setWeather(d.payload || d);
+});
 
 /* ------------------------------------------------------------------ *
  *  Loop

@@ -4,16 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=2" />
+  <link rel="stylesheet" href="./src/style.css?v=3" />
 </head>
 <body>
   <div id="app"></div>
 
   <div class="hud">
-    <header class="title">
-      <h1>Квартира</h1>
-      <p>интерактивная 3D-модель</p>
-    </header>
+    <section class="weather" id="weather" data-entity="weather.home">
+      <div class="weather-icon" id="weather-icon">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.6 34h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 34Z" />
+        </svg>
+      </div>
+      <div class="weather-body">
+        <div class="weather-temp" id="weather-temp">8 °C</div>
+        <div class="weather-state" id="weather-state">Облачно</div>
+      </div>
+    </section>
 
     <div class="controls">
       <button id="btn-iso" class="active" title="Изометрический вид">Изометрия</button>
@@ -52,6 +60,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=29"></script>
+  <script type="module" src="./src/main.js?v=36"></script>
 </body>
 </html>

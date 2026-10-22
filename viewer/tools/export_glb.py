@@ -59,6 +59,17 @@ RECOLOR = {
     'Four_Pendant_Lights_amazing_set_vol21_008': 'lamp',
     'Four_Pendant_Lights_amazing_set_vol21_009': 'lamp',
     'Four_Pendant_Lights_amazing_set_vol21_010': 'lamp',
+    # white 120 x 60 cm керамогранит: three floors, the bathroom wall and the
+    # two kitchen splashbacks
+    'Tile_hall': 'tile',
+    'Tile_wc': 'tile',
+    'Tile_bath': 'tile',
+    'Tile_wall_bath': 'tile',
+    'Box394': 'tile',
+    'Box395': 'tile',
+    # plain white finishes
+    'Maryland2': 'white',
+    'Object657725862': 'white',
     # curtains: Velvet Lux 10 (Souz-M), muted olive green
     'Plane003': 'curtain',
     'Plane007': 'curtain',
@@ -90,6 +101,11 @@ with open(FLOOR_META) as _f:
 FLOOR_SPAN = (
     _fm['minx'], _fm['maxx'], _fm['miny'], _fm['maxy'],
 )
+
+# white 120 x 60 cm ceramic tile (see make_tile_texture.py).  One texture period
+# covers 2.4 x 1.2 m, i.e. 2 x 2 tiles.
+TILE_TEX = os.path.abspath(os.path.join(os.path.dirname(__file__), 'tile_white.jpg'))
+TILE_UV = (2.4, 1.2)
 
 MIRRORS = {
     'Box2131642354', 'Box2131642355', 'Box2131642376', 'Box2131642378',
@@ -349,6 +365,59 @@ def make_floor_material():
     m.diffuse_color = (FLOOR_COL[0], FLOOR_COL[1], FLOOR_COL[2], 1.0)
     return m
 
+def make_tile_material():
+    """Glossy white ceramic: image texture repeats in both directions at
+    real-world scale, UVs are baked per face in ensure_tile_uv()."""
+    m = bpy.data.materials.new('Apt_tile')
+    m.use_nodes = True
+    nt = m.node_tree
+    b = nt.nodes.get('Principled BSDF')
+    b.inputs['Base Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+    b.inputs['Roughness'].default_value = 0.24
+    b.inputs['Metallic'].default_value = 0.0
+    if os.path.exists(TILE_TEX):
+        img = bpy.data.images.load(TILE_TEX, check_existing=True)
+        img.colorspace_settings.name = 'sRGB'
+        tex = nt.nodes.new('ShaderNodeTexImage')
+        tex.location = (-420, 240)
+        tex.extension = 'REPEAT'
+        tex.image = img
+        nt.links.new(tex.outputs['Color'], b.inputs['Base Color'])
+    else:
+        print('TILE TEXTURE MISSING', TILE_TEX)
+        b.inputs['Base Color'].default_value = (lin(0.95), lin(0.95), lin(0.94), 1.0)
+    m.diffuse_color = (lin(0.95), lin(0.95), lin(0.94), 1.0)
+    return m
+
+
+def ensure_tile_uv(o):
+    """World-space tiling UVs at 1.2 x 0.6 m per tile.
+
+    Horizontal faces take X/Y, vertical faces take Z as the 1.2 m direction so
+    the tiles read as vertical 60 x 120 cm on walls.  The grid starts at the
+    object's own lower corner, so every surface begins with a whole tile.
+    """
+    span_u, span_v = TILE_UV
+    bb = [o.matrix_world @ Vector(c) for c in o.bound_box]
+    mn = Vector((min(v.x for v in bb), min(v.y for v in bb), min(v.z for v in bb)))
+    uv = o.data.uv_layers.get('UVMap') or o.data.uv_layers.new(name='UVMap')
+    o.data.uv_layers.active = uv
+    for p in o.data.polygons:
+        n = p.normal
+        for li in p.loop_indices:
+            co = o.data.vertices[o.data.loops[li].vertex_index].co
+            if abs(n.z) > 0.7:
+                u = (co.x - mn.x) / span_u
+                v = (co.y - mn.y) / span_v
+            elif abs(n.y) >= abs(n.x):
+                u = (co.z - mn.z) / span_u
+                v = (co.x - mn.x) / span_v
+            else:
+                u = (co.z - mn.z) / span_u
+                v = (co.y - mn.y) / span_v
+            uv.data[li].uv = (u, v)
+
+
 mats = {}
 all_keys = set(it[2] for it in items)
 for key in sorted(all_keys):
@@ -370,6 +439,8 @@ for key in sorted(all_keys):
     elif key == 'lamp':
         # matte white pendant: off state must read as white, never black
         m = newmat('Apt_lamp', (0.93, 0.93, 0.905), 1.0, 0.52, 0.0)
+    elif key == 'tile':
+        m = make_tile_material()
     else:
         idx = int(key[1:])
         m = newmat('Apt_' + key, seeds[idx], 1.0, 0.8)
@@ -404,6 +475,8 @@ def ensure_floor_uv(o):
 def prep(o, key):
     if o.name == FLOOR_OBJ:
         ensure_floor_uv(o)
+    if key == 'tile':
+        ensure_tile_uv(o)
     o.data.materials.clear()
     o.data.materials.append(mats[key])
     for p in o.data.polygons:
