@@ -14,7 +14,7 @@ viewer/
   src/main.js           сцена, камера, свет, зеркала, светильники, выбор объектов
   src/style.css         HUD
   vendor/               three.js + addons + draco (локально, без CDN)
-  public/apartment.glb  готовая модель (Draco), ~11 МБ
+  public/apartment.glb  готовая модель (Draco), ~8 МБ
   public/apartment.objects.json  манифест мешей (id, габариты, полигоны)
   tools/export_glb.py            Blender-пайплайн: чистка сцены, материалы, экспорт
   tools/make_floor_herringbone.py генератор текстуры пола «ёлочка» 600×125 мм
@@ -58,6 +58,17 @@ blender -b blender_test/apartment_from_fbx.blend --python viewer/tools/export_gl
 
 `export_glb.py` содержит все правки сцены: удалённые объекты, клиппинг, зеркала,
 перекраски, масштаб камина, материалы пола/штор/светильников.
+
+### Синхронизация с 5_3_blender.fbx
+
+Сцена `blender_test/apartment_from_fbx.blend` приведена в соответствие с
+`5_3_blender.fbx`: из неё удалены 1616 объектов, которых нет в 5_3 (декор, растения,
+посуда, рейлинги, плинтусные накладки, ТВ-панель и т. п.). Список — в
+`blender_test/deleted_in_53.json`, резервная копия сцены до удаления —
+`blender_test/backup/apartment_from_fbx_20261022.blend` (md5 `b2e5dcf0…1333`).
+Обе сцены сверены по облаку точек с допуском 5 см: 90 % поверхности совпадает
+в обе стороны, структурные объекты (стены, пол, стекло, зеркала, светильники,
+шторы) не затронуты.
 
 ## Публикация
 
