@@ -9,12 +9,29 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
  * ------------------------------------------------------------------ */
 const app = document.getElementById('app');
 
+/**
+ * Phone / weak GPU profile.  The full scene (8 mirror cube maps + 2048 shadow
+ * maps + 3 shadow-casting lamps) is more than the GPU of many Android devices
+ * can hold, and Chrome drops the WebGL context — the flat vanishes while the
+ * HUD stays.  `?low=1` forces this profile, `?high=1` disables it.
+ */
+const LOW_POWER = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('low') === '1') return true;
+  if (q.get('high') === '1') return false;
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  const small = Math.min(window.screen.width, window.screen.height) < 900;
+  const mem = navigator.deviceMemory || 4;
+  return coarse || small || mem <= 3;
+})();
+console.log('[tier]', LOW_POWER ? 'low' : 'full');
+
 const renderer = new THREE.WebGLRenderer({
-  antialias: true,
+  antialias: !LOW_POWER,
   alpha: true,
   powerPreference: 'high-performance',
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOW_POWER ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -22,6 +39,25 @@ renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
+
+// If the GPU still runs out of memory, recover instead of leaving a blank page:
+// first loss → reload in the light profile, second one → explain what happened.
+let contextLost = false;
+renderer.domElement.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  if (contextLost) return;
+  contextLost = true;
+  console.warn('[webgl] context lost');
+  const q = new URLSearchParams(location.search);
+  if (q.get('low') !== '1') {
+    q.set('low', '1');
+    location.replace(`${location.pathname}?${q.toString()}`);
+  } else {
+    const box = document.getElementById('gl-lost');
+    if (box) box.hidden = false;
+    document.body.classList.add('gl-lost');
+  }
+}, false);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.5, 200);
@@ -51,7 +87,7 @@ scene.add(new THREE.HemisphereLight(0x2f4570, 0x060a12, 0.42));
 const key = new THREE.DirectionalLight(0x9fbde9, 0.52);
 key.position.set(9, 17, 11);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+key.shadow.mapSize.set(LOW_POWER ? 1024 : 2048, LOW_POWER ? 1024 : 2048);
 key.shadow.camera.left = -13;
 key.shadow.camera.right = 13;
 key.shadow.camera.top = 13;
@@ -139,11 +175,44 @@ function setupMirrors() {
   });
   if (!mirrors.length) return;
 
-  const res = 512;
+  const res = LOW_POWER ? 128 : 512;
   const wasVisible = mirrors.map((m) => m.visible);
   mirrors.forEach((m) => { m.visible = false; });
 
+  // low tier: one shared cube map for every mirror instead of eight
+  let shared = null;
+  if (LOW_POWER) {
+    const rt = new THREE.WebGLCubeRenderTarget(res, {
+      generateMipmaps: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    const cam = new THREE.CubeCamera(0.05, 60, rt);
+    cam.position.set(0, 1.7, 0);
+    scene.add(cam);
+    cam.update(renderer, scene);
+    scene.remove(cam);
+    shared = rt;
+  }
+
+  let sharedMat = null;
+  if (shared) {
+    sharedMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 1.0,
+      roughness: 0.08,
+      envMap: shared.texture,
+      envMapIntensity: 1.0,
+    });
+    sharedMat.name = 'Apt_mirror_live';
+  }
+
   mirrors.forEach((mesh) => {
+    if (sharedMat) {
+      mesh.material = sharedMat;
+      return;
+    }
+
     const box = new THREE.Box3().setFromObject(mesh);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -169,22 +238,28 @@ function setupMirrors() {
     const openDist = Math.max(dists[0], dists[1]);
     const offset = openDir.multiplyScalar(Math.min(0.6, Math.max(0.12, openDist * 0.35)));
 
-    const rt = new THREE.WebGLCubeRenderTarget(res, {
-      generateMipmaps: false,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-    });
-    const cam = new THREE.CubeCamera(0.05, 60, rt);
-    cam.position.copy(center).add(offset);
-    scene.add(cam);
-    cam.update(renderer, scene);
-    scene.remove(cam);
+    let envTexture;
+    if (shared) {
+      envTexture = shared.texture;
+    } else {
+      const rt = new THREE.WebGLCubeRenderTarget(res, {
+        generateMipmaps: false,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+      });
+      const cam = new THREE.CubeCamera(0.05, 60, rt);
+      cam.position.copy(center).add(offset);
+      scene.add(cam);
+      cam.update(renderer, scene);
+      scene.remove(cam);
+      envTexture = rt.texture;
+    }
 
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       metalness: 1.0,
-      roughness: 0.0,
-      envMap: rt.texture,
+      roughness: shared ? 0.08 : 0.0,
+      envMap: envTexture,
       envMapIntensity: 1.0,
     });
     mat.name = 'Apt_mirror_live';
@@ -193,6 +268,48 @@ function setupMirrors() {
 
   mirrors.forEach((m, i) => { m.visible = wasVisible[i]; });
   console.log('[mirrors]', mirrors.map((m) => m.name).join(', '));
+}
+
+
+/**
+ * Phones: the floor atlas alone is 4096 x 2629 (~43 MB in VRAM).  Halving it
+ * frees about 30 MB and is invisible at phone resolution.
+ */
+function downscaleBigTextures() {
+  const seen = new Set();
+  apartment.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || !m.map || seen.has(m.map)) continue;
+      const old = m.map;
+      seen.add(old);
+      const img = old.image;
+      if (!img || !img.width || img.width <= 2048) continue;
+
+      const c = document.createElement('canvas');
+      c.width = 2048;
+      c.height = Math.max(1, Math.round((2048 * img.height) / img.width));
+      const ctx = c.getContext('2d');
+      if (!ctx) continue;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = old.colorSpace;
+      tex.wrapS = old.wrapS;
+      tex.wrapT = old.wrapT;
+      tex.repeat.copy(old.repeat);
+      tex.offset.copy(old.offset);
+      tex.rotation = old.rotation;
+      tex.flipY = false;
+      tex.anisotropy = 4;
+      tex.needsUpdate = true;
+
+      m.map = tex;
+      m.needsUpdate = true;
+      old.dispose();
+    }
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -258,7 +375,7 @@ function setupLamps() {
     const light = new THREE.PointLight(0xffb46b, 0, 12, 2);
     light.position.set(center.x, box.min.y - 0.07, center.z);
     light.castShadow = true;
-    light.shadow.mapSize.set(1024, 1024);
+    light.shadow.mapSize.set(LOW_POWER ? 512 : 1024, LOW_POWER ? 512 : 1024);
     light.shadow.bias = -0.0032;
     light.shadow.normalBias = 0.035;
     light.shadow.camera.near = 0.06;
@@ -461,6 +578,7 @@ loader.load(
     key.target.position.set(0, 0, 0);
     key.position.set(9, 18, 11);
 
+    if (LOW_POWER) downscaleBigTextures();
     setupMirrors();
     setupLamps();
 

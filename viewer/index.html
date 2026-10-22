@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=3" />
+  <link rel="stylesheet" href="./src/style.css?v=4" />
 </head>
 <body>
   <div id="app"></div>
@@ -45,6 +45,11 @@
     </div>
   </div>
 
+  <div id="gl-lost" class="gl-lost" hidden>
+    <p>Не хватило памяти видеокарты для этой сцены.</p>
+    <button type="button" onclick="location.reload()">Перезагрузить</button>
+  </div>
+
   <div id="loader">
     <div class="loader-inner">
       <div class="loader-ring"></div>
@@ -60,6 +65,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=36"></script>
+  <script type="module" src="./src/main.js?v=38"></script>
 </body>
 </html>

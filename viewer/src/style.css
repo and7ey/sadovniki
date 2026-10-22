@@ -188,6 +188,39 @@ button.active {
 
 .selected-size { color: var(--ink-soft); white-space: nowrap; }
 
+.gl-lost {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  padding: 26px 30px;
+  border-radius: 18px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-size: 14px;
+  text-align: center;
+  max-width: min(90vw, 380px);
+}
+
+.gl-lost[hidden] { display: none; }
+.gl-lost p { margin: 0; color: var(--ink); }
+.gl-lost button {
+  padding: 9px 18px;
+  border-radius: 11px;
+  background: rgba(122, 162, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 255, 0.35);
+  color: #cfe0ff;
+}
+
+body.gl-lost #gl-lost { display: grid; }
+
 #loader {
   position: fixed;
   inset: 0;
