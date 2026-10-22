@@ -58,3 +58,12 @@ blender -b blender_test/apartment_from_fbx.blend --python viewer/tools/export_gl
 
 `export_glb.py` содержит все правки сцены: удалённые объекты, клиппинг, зеркала,
 перекраски, масштаб камина, материалы пола/штор/светильников.
+
+## Публикация
+
+```bash
+./tools/deploy_pages.sh     # выкладывает viewer/ на GitHub Pages (ветка gh-pages)
+```
+
+Основная ветка `main`/`master` — исходники и Blender-пайплайн; сайт собирается
+из содержимого `viewer/` в корне ветки `gh-pages`.
