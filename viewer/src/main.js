@@ -656,143 +656,208 @@ function mergeHallMirrors() {
 /* ------------------------------------------------------------------ *
  *  LED coves + GU10 track lights (temporary switches in the HUD)
  * ------------------------------------------------------------------ */
-// wall runs from the plan: living room along Стена 114 / 138 / 129,
-// kids' room along Стена 51.  a/b are the run ends in floor coordinates,
-// n points into the room.
-const LED_STRIPS = {
+// LED coves: runs are given as 3D segments with an explicit lamp count.
+// Nothing is drawn — only the light they cast is visible.
+const LED_RUNS = {
   living: [
-    { a: [1.40, -2.93], b: [7.22, -2.93], n: [0, 1] },
-    { a: [7.23, -2.93], b: [7.23, 0.46], n: [-1, 0] },
-    { a: [6.10, 0.46], b: [7.23, 0.46], n: [0, -1] },
+    // Стена 114
+    { a: [1.40, 2.82, -2.76], b: [7.22, 2.82, -2.76], count: 3 },
+    // Стена 138
+    { a: [7.06, 2.82, -2.93], b: [7.06, 2.82, 0.44], count: 1 },
+    // Стена 129
+    { a: [6.10, 2.82, 0.29], b: [7.23, 2.82, 0.29], count: 1 },
   ],
   kids: [
-    { a: [-2.91, -2.93], b: [1.11, -2.93], n: [0, 1] },
+    // Стена 51
+    { a: [-2.91, 2.82, -2.76], b: [1.11, 2.82, -2.76], count: 2 },
+  ],
+  kitchen: [
+    // сверху вдоль Стена 14
+    { a: [-7.05, 2.82, -2.76], b: [-3.30, 2.82, -2.76], count: 3 },
+    // под верхними шкафами: modern_kitchen_11_095 и modern_kitchen_11_075
+    // одной лентой (угол общий)
+    { a: [-6.86, 2.30, -2.30], b: [-6.86, 2.30, 0.12], count: 2 },
+    { a: [-6.86, 2.30, 0.12], b: [-5.05, 2.30, 0.12], count: 2 },
+  ],
+  hall: [
+    // вертикальная лента по левому краю зеркала Box2131642365
+    { a: [4.73, 0.40, 0.94], b: [4.73, 2.72, 0.94], count: 2 },
   ],
 };
 
-// track rectangles measured on the lighting plan (2890 x 2000 / 2000 x 2190)
+// track layout from the lighting plan.  The rails themselves are not drawn:
+// only the light of the fixtures is visible, so the numbers below define the
+// lamp positions.
+//   rect  — rectangular track, `perSide` lamps on each of the four sides
+//   strips — straight runs, `count` lamps spread along each run
 const TRACKS = {
-  living: { x: [2.84, 5.73], z: [-2.12, -0.12] },
-  kids: { x: [-1.90, 0.10], z: [-2.76, -0.57] },
+  living: {
+    rect: { x: [2.84, 5.73], z: [-2.12, -0.12], perSide: 2 },
+    // extra run along the east curtains (Plane1198 / Plane1200), 710 mm
+    // off the wall
+    strips: [{ a: [6.57, -2.40], b: [6.57, 0.35], count: 2 }],
+  },
+  kids: {
+    rect: { x: [-1.90, 0.10], z: [-2.76, -0.57], perSide: 2 },
+  },
+  // corridor: L along Стена 40 and Стена 75, 600 mm off both walls
+  corridor: {
+    strips: [
+      { a: [-2.33, 4.05], b: [-2.33, 2.64], count: 3 },
+      { a: [-2.33, 2.64], b: [1.80, 2.64], count: 3 },
+    ],
+  },
+  // kitchen: long run 560 mm off Стена 33 (it pokes into the corridor) and a
+  // second one 1370 mm off Стена 05
+  kitchen: {
+    strips: [
+      { a: [-3.75, -2.80], b: [-3.75, 2.00], count: 3 },
+      { a: [-5.78, -2.70], b: [-5.78, -0.10], count: 2 },
+    ],
+  },
 };
 
 const LED_INTENSITY = 6;
 const TRACK_INTENSITY = 12;
 
-const ledGroups = {};
-const trackFixtureGroups = {};
-const trackLights = {};
-const trackLenses = {};
-const lightState = { ledLiving: false, ledKids: false, trackLiving: false, trackKids: false };
+// every light costs real frame time: a scene with 29 spot lights renders at
+// ~13 fps on this machine, while 16 stays at 60.  So both the coves and the
+// tracks share a fixed pool of lights that is re-aimed at the lamps of the
+// tracks that are switched on.
+const LED_POOL = 10;
+const SPOT_POOL = 16;
 
-function buildLedCoves() {
-  for (const [room, strips] of Object.entries(LED_STRIPS)) {
-    const group = new THREE.Group();
-    group.name = 'LED_' + room;
-    if (!LOW_POWER) {
-      for (const s of strips) {
-        const dx = s.b[0] - s.a[0];
-        const dz = s.b[1] - s.a[1];
-        const len = Math.hypot(dx, dz);
-        const count = Math.max(1, Math.round(len / 2.2));
-        for (let i = 0; i < count; i++) {
-          const t = (i + 0.5) / count;
-          const light = new THREE.PointLight(0xffc27a, 0, 5.5, 2);
-          light.position.set(
-            s.a[0] + dx * t + s.n[0] * 0.22,
-            2.82,
-            s.a[1] + dz * t + s.n[1] * 0.22
-          );
-          group.add(light);
-        }
-      }
+const ledPool = [];
+const spotPool = [];
+const lightState = {
+  ledLiving: false,
+  ledKids: false,
+  ledKitchen: false,
+  ledHall: false,
+  trackLiving: false,
+  trackKids: false,
+  trackCorridor: false,
+  trackKitchen: false,
+};
+
+function pointsOnRuns(runs) {
+  const pts = [];
+  for (const run of runs) {
+    for (let i = 0; i < run.count; i++) {
+      const f = (i + 0.5) / run.count;
+      pts.push([
+        run.a[0] + (run.b[0] - run.a[0]) * f,
+        run.a[1] + (run.b[1] - run.a[1]) * f,
+        run.a[2] + (run.b[2] - run.a[2]) * f,
+      ]);
     }
-    scene.add(group);
-    ledGroups[room] = group;
   }
-  console.log('[led] coves', Object.keys(ledGroups)
-    .map((k) => k + ':' + ledGroups[k].children.length).join(' '));
+  return pts;
 }
 
-function buildTracks() {
-  for (const [room, t] of Object.entries(TRACKS)) {
-    const w = t.x[1] - t.x[0];
-    const d = t.z[1] - t.z[0];
-    const cx = (t.x[0] + t.x[1]) / 2;
-    const cz = (t.z[0] + t.z[1]) / 2;
-    const y = 2.945;
-
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x4b4d53, roughness: 0.45, metalness: 0.6 });
-    const headMat = new THREE.MeshStandardMaterial({ color: 0x35363a, roughness: 0.4, metalness: 0.65 });
-    const lensMat = new THREE.MeshStandardMaterial({
-      color: 0x14140f,
-      roughness: 0.35,
-      emissive: new THREE.Color(0xffd9a4),
-      emissiveIntensity: 0,
-    });
-
-    const fixtures = new THREE.Group();
-    fixtures.name = 'Track_' + room;
-
-    const bar = (len, rotY, x, z) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.024, 0.038), railMat);
-      m.position.set(x, y, z);
-      m.rotation.y = rotY;
-      fixtures.add(m);
-    };
-    bar(w, 0, cx, t.z[0]);
-    bar(w, 0, cx, t.z[1]);
-    bar(d, Math.PI / 2, t.x[0], cz);
-    bar(d, Math.PI / 2, t.x[1], cz);
-
-    const inset = 0.26;
-    const heads = [
-      [t.x[0] + inset, t.z[0] + inset],
-      [t.x[1] - inset, t.z[0] + inset],
-      [t.x[0] + inset, t.z[1] - inset],
-      [t.x[1] - inset, t.z[1] - inset],
-    ];
-
-    const lights = [];
-    for (const [hx, hz] of heads) {
-      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.05, 0.085, 14), headMat);
-      head.position.set(hx, y - 0.07, hz);
-      fixtures.add(head);
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 14), lensMat);
-      lens.position.set(hx, y - 0.122, hz);
-      lens.rotation.x = Math.PI / 2;
-      fixtures.add(lens);
-
-      if (!LOW_POWER) {
-        const spot = new THREE.SpotLight(0xfff0d8, 0, 7, 0.62, 0.55, 2);
-        spot.position.set(hx, y - 0.13, hz);
-        spot.target.position.set(hx, 0, hz);
-        spot.castShadow = false;
-        scene.add(spot, spot.target);
-        lights.push(spot);
+function trackPoints(track) {
+  const pts = [];
+  if (track.rect) {
+    const { x, z, perSide } = track.rect;
+    const side = (ax, az, bx, bz) => {
+      for (let i = 0; i < perSide; i++) {
+        const f = (i + 1) / (perSide + 1);
+        pts.push([ax + (bx - ax) * f, 2.92, az + (bz - az) * f]);
       }
-    }
-
-    scene.add(fixtures);
-    trackFixtureGroups[room] = fixtures;
-    trackLights[room] = lights;
-    trackLenses[room] = lensMat;
+    };
+    side(x[0], z[0], x[1], z[0]);
+    side(x[0], z[1], x[1], z[1]);
+    side(x[0], z[0], x[0], z[1]);
+    side(x[1], z[0], x[1], z[1]);
   }
-  console.log('[track]', Object.keys(trackLights)
-    .map((k) => k + ':' + trackLights[k].length).join(' '));
+  for (const s of track.strips || []) {
+    for (let i = 0; i < s.count; i++) {
+      const f = (i + 0.5) / s.count;
+      pts.push([s.a[0] + (s.b[0] - s.a[0]) * f, 2.92, s.a[1] + (s.b[1] - s.a[1]) * f]);
+    }
+  }
+  return pts;
+}
+
+// evenly thin a list down to `size` entries
+function samplePoints(pts, size) {
+  if (pts.length <= size) return pts.slice();
+  const step = pts.length / size;
+  const out = [];
+  for (let i = 0; i < size; i++) out.push(pts[Math.floor(i * step)]);
+  return out;
+}
+
+function enabledPoints(runsByRoom, pointsOf) {
+  const pts = [];
+  for (const room of Object.keys(runsByRoom)) {
+    const key = 'led' + room[0].toUpperCase() + room.slice(1);
+    if (lightState[key]) pts.push(...pointsOf(runsByRoom[room]));
+  }
+  return pts;
+}
+
+function enabledTrackPoints() {
+  const pts = [];
+  for (const room of Object.keys(TRACKS)) {
+    const key = 'track' + room[0].toUpperCase() + room.slice(1);
+    if (lightState[key]) pts.push(...trackPoints(TRACKS[room]));
+  }
+  return pts;
+}
+
+function refreshLeds() {
+  const picked = samplePoints(enabledPoints(LED_RUNS, pointsOnRuns), ledPool.length);
+  ledPool.forEach((light, i) => {
+    const p = picked[i];
+    if (!p) {
+      light.intensity = 0;
+      return;
+    }
+    light.position.set(p[0], p[1], p[2]);
+    light.intensity = LED_INTENSITY;
+  });
+  return picked.length;
+}
+
+function refreshTracks() {
+  const picked = samplePoints(enabledTrackPoints(), spotPool.length);
+  spotPool.forEach((spot, i) => {
+    const p = picked[i];
+    if (!p) {
+      spot.intensity = 0;
+      return;
+    }
+    spot.position.set(p[0], p[1], p[2]);
+    spot.target.position.set(p[0], 0, p[2]);
+    spot.target.updateMatrixWorld();
+    spot.intensity = TRACK_INTENSITY;
+  });
+  return picked.length;
+}
+
+function buildLights() {
+  if (!LOW_POWER) {
+    for (let i = 0; i < LED_POOL; i++) {
+      const light = new THREE.PointLight(0xffc27a, 0, 5.5, 2);
+      scene.add(light);
+      ledPool.push(light);
+    }
+    for (let i = 0; i < SPOT_POOL; i++) {
+      // GU10, 640 lm: no shadow, the rails are not modelled
+      const spot = new THREE.SpotLight(0xfff0d8, 0, 7.5, 0.66, 0.55, 2);
+      spot.castShadow = false;
+      scene.add(spot, spot.target);
+      spotPool.push(spot);
+    }
+  }
+  console.log('[light] pool led', ledPool.length, 'spot', spotPool.length);
 }
 
 function setLight(kind, room, on) {
-  if (kind === 'led') {
-    const group = ledGroups[room];
-    if (group) group.children.forEach((l) => { if (l.isPointLight) l.intensity = on ? LED_INTENSITY : 0; });
-  } else {
-    (trackLights[room] || []).forEach((l) => { l.intensity = on ? TRACK_INTENSITY : 0; });
-    const lens = trackLenses[room];
-    if (lens) lens.emissiveIntensity = on ? 1 : 0;
-  }
   lightState[kind + room[0].toUpperCase() + room.slice(1)] = on;
-  console.log('[light]', kind, room, on ? 'ON' : 'OFF');
+  const used = kind === 'led' ? refreshLeds() : refreshTracks();
+  console.log('[light]', kind, room, on ? 'ON' : 'OFF', 'lamps', used);
   return on;
 }
 
@@ -1145,8 +1210,7 @@ loader.load(
     mergeHallMirrors();
     setupMirrors();
     setupLamps();
-    buildLedCoves();
-    buildTracks();
+    buildLights();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1381,8 +1445,12 @@ function initUI() {
   const LIGHT_BUTTONS = [
     ['btn-led-living', 'led', 'living'],
     ['btn-led-kids', 'led', 'kids'],
+    ['btn-led-kitchen', 'led', 'kitchen'],
+    ['btn-led-hall', 'led', 'hall'],
     ['btn-track-living', 'track', 'living'],
     ['btn-track-kids', 'track', 'kids'],
+    ['btn-track-corridor', 'track', 'corridor'],
+    ['btn-track-kitchen', 'track', 'kitchen'],
   ];
   for (const [id, kind, room] of LIGHT_BUTTONS) {
     const btn = document.getElementById(id);
