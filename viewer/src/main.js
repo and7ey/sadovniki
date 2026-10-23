@@ -117,7 +117,9 @@ scene.add(hemi);
 
 const key = new THREE.DirectionalLight(0x9fbde9, 0.52);
 key.position.set(9, 17, 11);
-key.castShadow = true;
+// the flat now has a (hidden) ceiling, so a shadow-casting sun would put the
+// whole interior in shade: keep the sun as pure fill and let the lamps cast
+key.castShadow = false;
 key.shadow.mapSize.set(LOW_POWER ? 1024 : 2048, LOW_POWER ? 1024 : 2048);
 key.shadow.camera.left = -13;
 key.shadow.camera.right = 13;
@@ -510,7 +512,7 @@ function setupLamps() {
     // as requested: the bulb sits inside the shade
     const light = new THREE.PointLight(0xffb46b, 0, 12, 2);
     light.position.set(center.x, box.min.y + 0.15, center.z);
-    light.castShadow = !LOW_POWER;
+    light.castShadow = false; // texture-unit budget: see SPOT_SHADOW_COUNT
     light.shadow.mapSize.set(LOW_POWER ? 512 : 1024, LOW_POWER ? 512 : 1024);
     light.shadow.bias = -0.0032;
     light.shadow.normalBias = 0.035;
@@ -685,31 +687,28 @@ const LED_RUNS = {
   ],
 };
 
-// track layout from the lighting plan.  The rails themselves are not drawn:
-// only the light of the fixtures is visible, so the numbers below define the
-// lamp positions.
-//   rect  — rectangular track, `perSide` lamps on each of the four sides
-//   strips — straight runs, `count` lamps spread along each run
+// Track layout from the lighting plan.  `rect` is a rectangular track with
+// `perSide` lamps per side, `strips` are straight runs with `count` lamps.
 const TRACKS = {
   living: {
+    label: 'гостиная',
     rect: { x: [2.84, 5.73], z: [-2.12, -0.12], perSide: 2 },
-    // extra run along the east curtains (Plane1198 / Plane1200), 710 mm
-    // off the wall
+    // extra run along the east curtains (Plane1198 / Plane1200), 710 mm off
     strips: [{ a: [6.57, -2.40], b: [6.57, 0.35], count: 2 }],
   },
   kids: {
+    label: 'детская',
     rect: { x: [-1.90, 0.10], z: [-2.76, -0.57], perSide: 2 },
   },
-  // corridor: L along Стена 40 and Стена 75, 600 mm off both walls
   corridor: {
+    label: 'коридор',
     strips: [
       { a: [-2.33, 4.05], b: [-2.33, 2.64], count: 3 },
       { a: [-2.33, 2.64], b: [1.80, 2.64], count: 3 },
     ],
   },
-  // kitchen: long run 560 mm off Стена 33 (it pokes into the corridor) and a
-  // second one 1370 mm off Стена 05
   kitchen: {
+    label: 'кухня',
     strips: [
       { a: [-3.75, -2.80], b: [-3.75, 2.00], count: 3 },
       { a: [-5.78, -2.70], b: [-5.78, -0.10], count: 2 },
@@ -718,17 +717,24 @@ const TRACKS = {
 };
 
 const LED_INTENSITY = 6;
-const TRACK_INTENSITY = 12;
+const TRACK_DEFAULT = 12;
+const CEILING_Y = 3.0;
 
-// every light costs real frame time: a scene with 29 spot lights renders at
-// ~13 fps on this machine, while 16 stays at 60.  So both the coves and the
-// tracks share a fixed pool of lights that is re-aimed at the lamps of the
-// tracks that are switched on.
-const LED_POOL = 10;
-const SPOT_POOL = 16;
+// Every light costs frame time: a scene with 29 spot lights renders at ~13 fps
+// on this machine, 16 stay at 60.  So both coves and tracks share a fixed pool
+// of lights that is re-aimed at the lamps of the groups that are switched on.
+const LED_POOL = 8;
+const SPOT_POOL = 12;
+// The GPU only has ~16 texture units, and every shadow-casting light takes one.
+// 8 coves + 4 spots fit next to the material maps; a 15th shadow map makes the
+// whole scene disappear, so the pendant lights no longer cast shadows.
+const SPOT_SHADOW_COUNT = 4;
 
 const ledPool = [];
 const spotPool = [];
+const trackFixtures = {};   // room -> [{ x, z, y, intensity, mesh }]
+const trackGroups = {};     // room -> THREE.Group with rails + lamp heads
+const trackIntensity = { living: TRACK_DEFAULT, kids: TRACK_DEFAULT, corridor: TRACK_DEFAULT, kitchen: TRACK_DEFAULT };
 const lightState = {
   ledLiving: false,
   ledKids: false,
@@ -739,6 +745,11 @@ const lightState = {
   trackCorridor: false,
   trackKitchen: false,
 };
+let pendingMove = null;     // { room, index } while a lamp is being re-placed
+
+function cap(room) {
+  return room[0].toUpperCase() + room.slice(1);
+}
 
 function pointsOnRuns(runs) {
   const pts = [];
@@ -788,26 +799,13 @@ function samplePoints(pts, size) {
   return out;
 }
 
-function enabledPoints(runsByRoom, pointsOf) {
-  const pts = [];
-  for (const room of Object.keys(runsByRoom)) {
-    const key = 'led' + room[0].toUpperCase() + room.slice(1);
-    if (lightState[key]) pts.push(...pointsOf(runsByRoom[room]));
-  }
-  return pts;
-}
-
-function enabledTrackPoints() {
-  const pts = [];
-  for (const room of Object.keys(TRACKS)) {
-    const key = 'track' + room[0].toUpperCase() + room.slice(1);
-    if (lightState[key]) pts.push(...trackPoints(TRACKS[room]));
-  }
-  return pts;
-}
-
 function refreshLeds() {
-  const picked = samplePoints(enabledPoints(LED_RUNS, pointsOnRuns), ledPool.length);
+  const pts = [];
+  for (const room of Object.keys(LED_RUNS)) {
+    if (!lightState['led' + cap(room)]) continue;
+    pts.push(...pointsOnRuns(LED_RUNS[room]));
+  }
+  const picked = samplePoints(pts, ledPool.length);
   ledPool.forEach((light, i) => {
     const p = picked[i];
     if (!p) {
@@ -816,49 +814,224 @@ function refreshLeds() {
     }
     light.position.set(p[0], p[1], p[2]);
     light.intensity = LED_INTENSITY;
+    light.shadow.needsUpdate = true;
   });
   return picked.length;
 }
 
 function refreshTracks() {
-  const picked = samplePoints(enabledTrackPoints(), spotPool.length);
+  const pts = [];
+  for (const room of Object.keys(trackFixtures)) {
+    if (!lightState['track' + cap(room)]) continue;
+    pts.push(...trackFixtures[room]);
+  }
+  const picked = samplePoints(pts, spotPool.length);
   spotPool.forEach((spot, i) => {
-    const p = picked[i];
-    if (!p) {
+    const f = picked[i];
+    if (!f) {
       spot.intensity = 0;
       return;
     }
-    spot.position.set(p[0], p[1], p[2]);
-    spot.target.position.set(p[0], 0, p[2]);
+    spot.position.set(f.x, f.y, f.z);
+    spot.target.position.set(f.x, 0, f.z);
     spot.target.updateMatrixWorld();
-    spot.intensity = TRACK_INTENSITY;
+    spot.intensity = f.intensity;
+    spot.shadow.needsUpdate = true;
   });
   return picked.length;
 }
 
-function buildLights() {
-  if (!LOW_POWER) {
-    for (let i = 0; i < LED_POOL; i++) {
-      const light = new THREE.PointLight(0xffc27a, 0, 5.5, 2);
-      scene.add(light);
-      ledPool.push(light);
-    }
-    for (let i = 0; i < SPOT_POOL; i++) {
-      // GU10, 640 lm: no shadow, the rails are not modelled
-      const spot = new THREE.SpotLight(0xfff0d8, 0, 7.5, 0.66, 0.55, 2);
-      spot.castShadow = false;
-      scene.add(spot, spot.target);
-      spotPool.push(spot);
-    }
+function buildLightPools() {
+  if (LOW_POWER) return;
+  for (let i = 0; i < LED_POOL; i++) {
+    const light = new THREE.PointLight(0xffc27a, 0, 6, 2);
+    light.castShadow = true;
+    light.shadow.mapSize.set(256, 256);
+    light.shadow.camera.near = 0.06;
+    light.shadow.camera.far = 8;
+    light.shadow.bias = -0.004;
+    light.shadow.normalBias = 0.03;
+    light.shadow.autoUpdate = false;
+    scene.add(light);
+    ledPool.push(light);
+  }
+  for (let i = 0; i < SPOT_POOL; i++) {
+    // GU10, 640 lm
+    const spot = new THREE.SpotLight(0xfff0d8, 0, 7.5, 0.78, 0.85, 2);
+    spot.castShadow = i < SPOT_SHADOW_COUNT;
+    spot.shadow.mapSize.set(512, 512);
+    spot.shadow.camera.near = 0.08;
+    spot.shadow.camera.far = 8;
+    spot.shadow.bias = -0.0025;
+    spot.shadow.normalBias = 0.03;
+    spot.shadow.autoUpdate = false;
+    scene.add(spot, spot.target);
+    spotPool.push(spot);
   }
   console.log('[light] pool led', ledPool.length, 'spot', spotPool.length);
 }
 
+/* ------------------------------------------------------------------ *
+ *  Track rails + lamp heads (visible so they can be placed by hand)
+ * ------------------------------------------------------------------ */
+function buildTracks() {
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x35373c, roughness: 0.45, metalness: 0.6 });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0x26282c, roughness: 0.4, metalness: 0.65 });
+  const lensMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a16,
+    roughness: 0.3,
+    emissive: new THREE.Color(0xffd9a4),
+    emissiveIntensity: 0.35,
+  });
+
+  const bar = (group, a, b, y) => {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, 0.026, 0.042), railMat);
+    mesh.position.set((a[0] + b[0]) / 2, y, (a[1] + b[1]) / 2);
+    mesh.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+    group.add(mesh);
+  };
+
+  for (const [room, track] of Object.entries(TRACKS)) {
+    const group = new THREE.Group();
+    group.name = 'Track_' + room;
+
+    if (track.rect) {
+      const { x, z } = track.rect;
+      const y = 2.955;
+      bar(group, [x[0], z[0]], [x[1], z[0]], y);
+      bar(group, [x[0], z[1]], [x[1], z[1]], y);
+      bar(group, [x[0], z[0]], [x[0], z[1]], y);
+      bar(group, [x[1], z[0]], [x[1], z[1]], y);
+    }
+    for (const s of track.strips || []) bar(group, s.a, s.b, 2.955);
+
+    const fixtures = [];
+    trackPoints(track).forEach((p, i) => {
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.095, 16), headMat.clone());
+      head.position.set(p[0], 2.9, p[2]);
+      head.castShadow = false;
+      head.userData.track = { room, index: i };
+      head.name = 'Лампа ' + track.label + ' ' + (i + 1);
+      group.add(head);
+
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.038, 16), lensMat);
+      lens.position.set(p[0], 2.852, p[2]);
+      lens.rotation.x = Math.PI / 2;
+      lens.userData.track = { room, index: i };
+      group.add(lens);
+
+      fixtures.push({ x: p[0], y: p[1], z: p[2], intensity: trackIntensity[room], mesh: head });
+    });
+
+    scene.add(group);
+    trackGroups[room] = group;
+    trackFixtures[room] = fixtures;
+  }
+  console.log('[track] built', Object.keys(trackFixtures)
+    .map((k) => k + ':' + trackFixtures[k].length).join(' '));
+}
+
+/* ------------------------------------------------------------------ *
+ *  Invisible ceiling — stops the interior lights from bleeding over the
+ *  wall tops into the next room while staying out of the picture.
+ * ------------------------------------------------------------------ */
+function buildCeiling() {
+  const outline = apartmentOutline();
+  if (outline.length < 3) return;
+  const shape = new THREE.Shape();
+  outline.forEach(([x, z], i) => (i ? shape.lineTo(x, -z) : shape.moveTo(x, -z)));
+  shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape);
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, CEILING_Y + 0.02, 0);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
+  mat.colorWrite = false;   // never appears on screen
+  mat.depthWrite = false;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'CeilingShadow';
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  mesh.raycast = () => {};
+  scene.add(mesh);
+  console.log('[ceiling] shadow catcher at y', CEILING_Y + 0.02);
+}
+
 function setLight(kind, room, on) {
-  lightState[kind + room[0].toUpperCase() + room.slice(1)] = on;
+  lightState[kind + cap(room)] = on;
   const used = kind === 'led' ? refreshLeds() : refreshTracks();
   console.log('[light]', kind, room, on ? 'ON' : 'OFF', 'lamps', used);
   return on;
+}
+
+function setTrackIntensity(room, value) {
+  const v = Math.max(0, Number(value) || 0);
+  trackIntensity[room] = v;
+  for (const f of trackFixtures[room] || []) f.intensity = v;
+  refreshTracks();
+  return v;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Click a lamp head, then click the spot where it should hang
+ * ------------------------------------------------------------------ */
+function fixtureAt(object) {
+  let o = object;
+  while (o) {
+    if (o.userData && o.userData.track) return { ...o.userData.track, object: o };
+    o = o.parent;
+  }
+  return null;
+}
+
+function startFixtureMove(room, index) {
+  const f = trackFixtures[room] && trackFixtures[room][index];
+  if (!f) return;
+  if (pendingMove) clearFixtureHighlight();
+  pendingMove = { room, index };
+  f.mesh.material.color.setHex(0xff8a3d);
+  f.mesh.material.emissive.setHex(0x552200);
+  console.log('[fixture] выбран', 'Лампа ' + TRACKS[room].label + ' ' + (index + 1),
+    '— кликните новое место');
+  showHint('Лампа ' + TRACKS[room].label + ' ' + (index + 1) + ': кликните новое место');
+}
+
+function clearFixtureHighlight() {
+  if (!pendingMove) return;
+  const f = trackFixtures[pendingMove.room] && trackFixtures[pendingMove.room][pendingMove.index];
+  if (f) {
+    f.mesh.material.color.setHex(0x26282c);
+    f.mesh.material.emissive.setHex(0x000000);
+  }
+  pendingMove = null;
+  showHint('');
+}
+
+function moveFixtureTo(point) {
+  if (!pendingMove) return null;
+  const { room, index } = pendingMove;
+  const f = trackFixtures[room][index];
+  f.x = point.x;
+  f.z = point.z;
+  f.mesh.position.x = point.x;
+  f.mesh.position.z = point.z;
+  const name = 'Лампа ' + TRACKS[room].label + ' ' + (index + 1);
+  console.log('[fixture]', name, 'x', point.x.toFixed(2), 'z', point.z.toFixed(2));
+  showHint(name + ' → x ' + point.x.toFixed(2) + ', z ' + point.z.toFixed(2));
+  clearFixtureHighlight();
+  refreshTracks();
+  return { room, index, x: +point.x.toFixed(2), z: +point.z.toFixed(2) };
+}
+
+function showHint(text) {
+  const el = document.getElementById('selected');
+  if (!el) return;
+  if (!text) return;
+  el.hidden = false;
+  const id = document.getElementById('selected-id');
+  const size = document.getElementById('selected-size');
+  if (id) id.textContent = text;
+  if (size) size.textContent = '';
 }
 
 /* ------------------------------------------------------------------ *
@@ -1210,7 +1383,9 @@ loader.load(
     mergeHallMirrors();
     setupMirrors();
     setupLamps();
-    buildLights();
+    buildLightPools();
+    buildTracks();
+    buildCeiling();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1363,7 +1538,9 @@ function pickAt(clientX, clientY) {
   pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointerNDC, camera);
 
-  const hits = raycaster.intersectObject(apartment, true).filter((h) => h.object.isMesh);
+  const targets = [apartment];
+  for (const g of Object.values(trackGroups)) targets.push(g);
+  const hits = raycaster.intersectObjects(targets, true).filter((h) => h.object.isMesh);
   if (!hits.length) return null;
 
   // faded walls and transparent glass should not block what is behind them
@@ -1396,6 +1573,15 @@ function setupSelection() {
     down = null;
     if (moved > 6 || elapsed > 700) return; // it was a drag, not a click
     const hit = pickAt(e.clientX, e.clientY);
+    const fixture = hit ? fixtureAt(hit.object) : null;
+    if (fixture) {
+      startFixtureMove(fixture.room, fixture.index);
+      return;
+    }
+    if (pendingMove) {
+      if (hit) moveFixtureTo(hit.point);
+      return;
+    }
     selectMesh(hit ? hit.object : null, hit ? hit.point : null);
   });
 
@@ -1452,6 +1638,26 @@ function initUI() {
     ['btn-track-corridor', 'track', 'corridor'],
     ['btn-track-kitchen', 'track', 'kitchen'],
   ];
+  const TRACK_ROWS = [
+    ['living', 'Гостиная'],
+    ['kids', 'Детская'],
+    ['corridor', 'Коридор'],
+    ['kitchen', 'Кухня'],
+  ];
+  for (const [room, label] of TRACK_ROWS) {
+    const input = document.getElementById('tp-' + room);
+    const out = document.getElementById('tpv-' + room);
+    if (!input) continue;
+    input.addEventListener('input', () => {
+      setTrackIntensity(room, input.value);
+      if (out) out.textContent = input.value;
+    });
+    input.addEventListener('change', () => {
+      console.log('[track]', label, Number(input.value));
+      showHint('Треки ' + label + ': яркость ' + input.value);
+    });
+  }
+
   for (const [id, kind, room] of LIGHT_BUTTONS) {
     const btn = document.getElementById(id);
     if (!btn) continue;
@@ -1523,6 +1729,14 @@ function initUI() {
     lighting: () => lightingMode,
     lightState,
     setLight,
+    setTrackIntensity,
+    trackIntensity,
+    trackFixtures,
+    moveFixture: (room, i, x, z) => {
+      if (!pendingMove) startFixtureMove(room, i);
+      return moveFixtureTo({ x, z });
+    },
+    ceiling: () => scene.getObjectByName('CeilingShadow'),
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {

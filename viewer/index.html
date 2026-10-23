@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=6" />
+  <link rel="stylesheet" href="./src/style.css?v=7" />
 </head>
 <body>
   <div id="app"></div>
@@ -41,6 +41,15 @@
       <button id="btn-track-kitchen" title="Треки GU10 — кухня">Треки кух</button>
     </div>
 
+
+    <div class="track-panel" id="track-panel">
+      <div class="tp-title">Яркость треков</div>
+      <label class="tp-row"><span>Гостиная</span><input type="range" id="tp-living" min="0" max="40" step="0.5" value="12" /><b id="tpv-living">12</b></label>
+      <label class="tp-row"><span>Детская</span><input type="range" id="tp-kids" min="0" max="40" step="0.5" value="12" /><b id="tpv-kids">12</b></label>
+      <label class="tp-row"><span>Коридор</span><input type="range" id="tp-corridor" min="0" max="40" step="0.5" value="12" /><b id="tpv-corridor">12</b></label>
+      <label class="tp-row"><span>Кухня</span><input type="range" id="tp-kitchen" min="0" max="40" step="0.5" value="12" /><b id="tpv-kitchen">12</b></label>
+    </div>
+
     <div id="selected" class="selected" hidden>
       <span class="selected-label">Выбрано</span>
       <code id="selected-id"></code>
@@ -75,6 +84,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=44"></script>
+  <script type="module" src="./src/main.js?v=45"></script>
 </body>
 </html>
