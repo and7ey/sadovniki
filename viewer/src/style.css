@@ -297,6 +297,7 @@ body.day .selected code { background: rgba(255, 255, 255, 0.85); }
 
 .track-panel {
   position: absolute;
+  pointer-events: auto;
   left: clamp(16px, 3vw, 34px);
   bottom: clamp(16px, 3vw, 34px);
   display: flex;

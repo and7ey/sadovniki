@@ -663,23 +663,23 @@ function mergeHallMirrors() {
 const LED_RUNS = {
   living: [
     // Стена 114
-    { a: [1.40, 2.82, -2.76], b: [7.22, 2.82, -2.76], count: 3 },
+    { a: [1.40, 2.82, -2.76], b: [7.22, 2.82, -2.76], count: 6 },
     // Стена 138
-    { a: [7.06, 2.82, -2.93], b: [7.06, 2.82, 0.44], count: 1 },
+    { a: [7.06, 2.82, -2.93], b: [7.06, 2.82, 0.44], count: 3 },
     // Стена 129
     { a: [6.10, 2.82, 0.29], b: [7.23, 2.82, 0.29], count: 1 },
   ],
   kids: [
     // Стена 51
-    { a: [-2.91, 2.82, -2.76], b: [1.11, 2.82, -2.76], count: 2 },
+    { a: [-2.91, 2.82, -2.76], b: [1.11, 2.82, -2.76], count: 3 },
   ],
   kitchen: [
     // сверху вдоль Стена 14
-    { a: [-7.05, 2.82, -2.76], b: [-3.30, 2.82, -2.76], count: 3 },
+    { a: [-7.05, 2.82, -2.76], b: [-3.30, 2.82, -2.76], count: 5 },
     // под верхними шкафами: modern_kitchen_11_095 и modern_kitchen_11_075
     // одной лентой (угол общий)
-    { a: [-6.86, 2.30, -2.30], b: [-6.86, 2.30, 0.12], count: 2 },
-    { a: [-6.86, 2.30, 0.12], b: [-5.05, 2.30, 0.12], count: 2 },
+    { a: [-6.86, 2.30, -2.30], b: [-6.86, 2.30, 0.12], count: 3 },
+    { a: [-6.86, 2.30, 0.12], b: [-5.05, 2.30, 0.12], count: 3 },
   ],
   hall: [
     // вертикальная лента по левому краю зеркала Box2131642365
@@ -704,8 +704,11 @@ const TRACKS = {
     label: 'коридор',
     strips: [
       { a: [-2.33, 4.05], b: [-2.33, 2.64], count: 3 },
-      { a: [-2.33, 2.64], b: [1.80, 2.64], count: 3 },
+      // вторая полоса идёт между Стена 58 (z = 0.84) и Стена 75 (z = 2.04)
+      { a: [-2.33, 1.44], b: [1.80, 1.44], count: 3 },
     ],
+    // «Лампа коридор 2» убрана: индексы остальных ламп не меняются
+    skip: [1],
   },
   kitchen: {
     label: 'кухня',
@@ -716,15 +719,16 @@ const TRACKS = {
   },
 };
 
-const LED_INTENSITY = 6;
+const LED_INTENSITY = 4;
 const TRACK_DEFAULT = 12;
 const CEILING_Y = 3.0;
 
 // Every light costs frame time: a scene with 29 spot lights renders at ~13 fps
 // on this machine, 16 stay at 60.  So both coves and tracks share a fixed pool
 // of lights that is re-aimed at the lamps of the groups that are switched on.
-const LED_POOL = 8;
+const LED_POOL = 10;
 const SPOT_POOL = 12;
+const LED_SHADOW_COUNT = 8;
 // The GPU only has ~16 texture units, and every shadow-casting light takes one.
 // 8 coves + 4 spots fit next to the material maps; a 15th shadow map makes the
 // whole scene disappear, so the pendant lights no longer cast shadows.
@@ -823,7 +827,7 @@ function refreshTracks() {
   const pts = [];
   for (const room of Object.keys(trackFixtures)) {
     if (!lightState['track' + cap(room)]) continue;
-    pts.push(...trackFixtures[room]);
+    pts.push(...trackFixtures[room].filter(Boolean));
   }
   const picked = samplePoints(pts, spotPool.length);
   spotPool.forEach((spot, i) => {
@@ -844,8 +848,10 @@ function refreshTracks() {
 function buildLightPools() {
   if (LOW_POWER) return;
   for (let i = 0; i < LED_POOL; i++) {
-    const light = new THREE.PointLight(0xffc27a, 0, 6, 2);
-    light.castShadow = true;
+    // slower falloff + more sources per run: the cove reads as one even wash
+    // instead of a row of separate pools
+    const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
+    light.castShadow = i < LED_SHADOW_COUNT;
     light.shadow.mapSize.set(256, 256);
     light.shadow.camera.near = 0.06;
     light.shadow.camera.far = 8;
@@ -907,7 +913,12 @@ function buildTracks() {
     for (const s of track.strips || []) bar(group, s.a, s.b, 2.955);
 
     const fixtures = [];
+    const skip = new Set(track.skip || []);
     trackPoints(track).forEach((p, i) => {
+      if (skip.has(i)) {
+        fixtures.push(null);
+        return;
+      }
       const head = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.095, 16), headMat.clone());
       head.position.set(p[0], 2.9, p[2]);
       head.castShadow = false;
