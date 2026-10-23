@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=4" />
+  <link rel="stylesheet" href="./src/style.css?v=5" />
 </head>
 <body>
   <div id="app"></div>
@@ -25,10 +25,12 @@
 
     <div class="controls">
       <button id="btn-iso" class="active" title="Изометрический вид">Изометрия</button>
+      <button id="btn-light" title="Дневное / ночное освещение">День</button>
       <button id="btn-top" title="Вид сверху">Сверху</button>
       <span class="divider"></span>
       <button id="btn-walls" title="Показать/скрыть стены">Стены</button>
       <button id="btn-rotate" title="Автовращение">Вращение</button>
+      <button id="btn-slab" title="Толстая плита-основание / только тонкий пол">Плита</button>
     </div>
 
     <div id="selected" class="selected" hidden>
@@ -65,6 +67,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=38"></script>
+  <script type="module" src="./src/main.js?v=39"></script>
 </body>
 </html>

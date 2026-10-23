@@ -31,12 +31,12 @@ const renderer = new THREE.WebGLRenderer({
   alpha: true,
   powerPreference: 'high-performance',
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOW_POWER ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOW_POWER ? 1.25 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !LOW_POWER;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
@@ -49,7 +49,10 @@ renderer.domElement.addEventListener('webglcontextlost', (event) => {
   contextLost = true;
   console.warn('[webgl] context lost');
   const q = new URLSearchParams(location.search);
-  if (q.get('low') !== '1') {
+  let tries = 0;
+  try { tries = Number(sessionStorage.getItem('apt-gl-reloads') || 0); } catch (e) { /* private mode */ }
+  if (q.get('low') !== '1' && tries < 1) {
+    try { sessionStorage.setItem('apt-gl-reloads', String(tries + 1)); } catch (e) { /* ignore */ }
     q.set('low', '1');
     location.replace(`${location.pathname}?${q.toString()}`);
   } else {
@@ -77,12 +80,40 @@ controls.autoRotateSpeed = 0.7;
 /* ------------------------------------------------------------------ *
  *  Environment + lights
  * ------------------------------------------------------------------ */
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
-scene.environmentIntensity = 0.07;
+/* two looks: the original daylight render and the night one */
+const LIGHT_PRESETS = {
+  night: {
+    label: 'Ночь',
+    exposure: 1.0,
+    env: 0.07,
+    hemi: [0x2f4570, 0x060a12, 0.42],
+    key: [0x9fbde9, 0.52],
+    fill: [0x2b3f63, 0.16],
+    rim: [0x7fa2d8, 0.26],
+    bg: ['#05080f', '#0e1728', '#1d2b45'],
+  },
+  day: {
+    label: 'День',
+    exposure: 0.92,
+    env: 0.38,
+    hemi: [0xffffff, 0xb9c6d6, 0.8],
+    key: [0xfff4e6, 1.95],
+    fill: [0xdbe8ff, 0.55],
+    rim: [0xffffff, 0.5],
+    bg: ['#b9cde4', '#dbe7f4', '#f5f8fc'],
+  },
+};
 
-// night: the room is lit by a cool moonlit sky and the pendant lamps
-scene.add(new THREE.HemisphereLight(0x2f4570, 0x060a12, 0.42));
+const pmrem = new THREE.PMREMGenerator(renderer);
+if (!LOW_POWER) {
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
+  scene.environmentIntensity = LIGHT_PRESETS.night.env;
+} else {
+  scene.environmentIntensity = 0;
+}
+
+const hemi = new THREE.HemisphereLight(0x2f4570, 0x060a12, 0.42);
+scene.add(hemi);
 
 const key = new THREE.DirectionalLight(0x9fbde9, 0.52);
 key.position.set(9, 17, 11);
@@ -107,25 +138,67 @@ const rim = new THREE.DirectionalLight(0x7fa2d8, 0.26);
 rim.position.set(-4, 6, 13);
 scene.add(rim);
 
+let lightingMode = 'night';
+
+function applyLighting(mode) {
+  const p = LIGHT_PRESETS[mode] || LIGHT_PRESETS.night;
+  lightingMode = mode;
+  renderer.toneMappingExposure = p.exposure;
+  if (!LOW_POWER && scene.environment) scene.environmentIntensity = p.env;
+
+  hemi.color.set(p.hemi[0]);
+  hemi.groundColor.set(p.hemi[1]);
+  hemi.intensity = p.hemi[2];
+
+  key.color.set(p.key[0]);
+  key.intensity = p.key[1];
+  fill.color.set(p.fill[0]);
+  fill.intensity = p.fill[1];
+  rim.color.set(p.rim[0]);
+  rim.intensity = p.rim[1];
+
+  // pendant lamps read as "on" only in the dark
+  lampStates.forEach((st) => {
+    if (st.light) st.light.intensity = st.on ? (mode === 'day' ? 6 : 20) : 0;
+    if (st.glow) st.glow.visible = st.on && mode !== 'day';
+  });
+
+  setBackground(p.bg);
+  document.body.classList.toggle('day', mode === 'day');
+  const btn = document.getElementById('btn-light');
+  if (btn) btn.textContent = mode === 'day' ? 'Ночь' : 'День';
+  return mode;
+}
+
 /* ------------------------------------------------------------------ *
  *  Background (soft vertical gradient)
  * ------------------------------------------------------------------ */
-function makeBackground() {
+let backgroundTexture = null;
+
+function makeBackground(stops) {
   const c = document.createElement('canvas');
   c.width = 16;
   c.height = 512;
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0.0, '#05080f');
-  g.addColorStop(0.45, '#0e1728');
-  g.addColorStop(1.0, '#1d2b45');
+  g.addColorStop(0.0, stops[0]);
+  g.addColorStop(0.45, stops[1]);
+  g.addColorStop(1.0, stops[2]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 512);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-scene.background = makeBackground();
+
+function setBackground(stops) {
+  const next = makeBackground(stops);
+  scene.background = next;
+  if (backgroundTexture) backgroundTexture.dispose();
+  backgroundTexture = next;
+}
+
+setBackground(LIGHT_PRESETS.night.bg);
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -179,22 +252,20 @@ function setupMirrors() {
   const wasVisible = mirrors.map((m) => m.visible);
   mirrors.forEach((m) => { m.visible = false; });
 
-  // low tier: one shared cube map for every mirror instead of eight
+  // low tier: no reflection capture at all, just a glossy panel
   let shared = null;
   if (LOW_POWER) {
-    const rt = new THREE.WebGLCubeRenderTarget(res, {
-      generateMipmaps: false,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xa8b6cc,
+      metalness: 0.85,
+      roughness: 0.18,
     });
-    const cam = new THREE.CubeCamera(0.05, 60, rt);
-    cam.position.set(0, 1.7, 0);
-    scene.add(cam);
-    cam.update(renderer, scene);
-    scene.remove(cam);
-    shared = rt;
+    mat.name = 'Apt_mirror_live';
+    mirrors.forEach((m) => { m.material = mat; });
+    mirrors.forEach((m, i) => { m.visible = wasVisible[i]; });
+    console.log('[mirrors] flat (low tier)');
+    return;
   }
-
   let sharedMat = null;
   if (shared) {
     sharedMat = new THREE.MeshStandardMaterial({
@@ -285,11 +356,12 @@ function downscaleBigTextures() {
       const old = m.map;
       seen.add(old);
       const img = old.image;
-      if (!img || !img.width || img.width <= 2048) continue;
+      const maxW = LOW_POWER ? 1024 : 4096;
+      if (!img || !img.width || img.width <= maxW) continue;
 
       const c = document.createElement('canvas');
-      c.width = 2048;
-      c.height = Math.max(1, Math.round((2048 * img.height) / img.width));
+      c.width = maxW;
+      c.height = Math.max(1, Math.round((maxW * img.height) / img.width));
       const ctx = c.getContext('2d');
       if (!ctx) continue;
       ctx.drawImage(img, 0, 0, c.width, c.height);
@@ -362,7 +434,7 @@ function setupLamps() {
         depthWrite: false,
       })
     );
-    glow.position.set(center.x, box.min.y - 0.015, center.z);
+    glow.position.set(center.x, box.min.y + 0.03, center.z);
     glow.visible = false;
     glow.renderOrder = 5;
     scene.add(glow);
@@ -370,11 +442,10 @@ function setupLamps() {
     // 60 W incandescent: warm 2700 K point light at the bulb centre.
     // It casts shadows (walls occlude it), but the shadow map is only rebuilt
     // when the lamp is switched on, so there is no per-frame cost.
-    // the bulb sits just below the shade, otherwise the shade itself would
-    // swallow the light and the room would stay dark
+    // as requested: the bulb sits inside the shade
     const light = new THREE.PointLight(0xffb46b, 0, 12, 2);
-    light.position.set(center.x, box.min.y - 0.07, center.z);
-    light.castShadow = true;
+    light.position.set(center.x, box.min.y + 0.15, center.z);
+    light.castShadow = !LOW_POWER;
     light.shadow.mapSize.set(LOW_POWER ? 512 : 1024, LOW_POWER ? 512 : 1024);
     light.shadow.bias = -0.0032;
     light.shadow.normalBias = 0.035;
@@ -394,9 +465,9 @@ function toggleLamp(id) {
   const st = lampStates.get(id);
   if (!st) return false;
   st.on = !st.on;
-  st.glow.visible = st.on;
+  st.glow.visible = st.on && lightingMode !== 'day';
   st.light.visible = st.on;
-  st.light.intensity = st.on ? 20 : 0;
+  st.light.intensity = st.on ? (lightingMode === 'day' ? 6 : 20) : 0;
   if (st.on) st.light.shadow.needsUpdate = true;
   if (st.base) {
     st.base.emissive.set(st.on ? 0xffcb8a : 0x000000);
@@ -415,6 +486,9 @@ const progressEl = document.getElementById('progress');
 let apartment = null;
 let wallsMesh = null;
 let slab = null;
+let thinPlate = null;
+let softShadow = null;
+let slabMode = 'plinth';
 
 const modelBox = new THREE.Box3();
 const modelSize = new THREE.Vector3();
@@ -441,7 +515,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=9',
+  './public/apartment.glb?v=10',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -562,7 +636,33 @@ loader.load(
     );
     soft.rotation.x = -Math.PI / 2;
     soft.position.y = -slabThickness - 0.22;
+    softShadow = soft;
     scene.add(soft);
+
+    // ---- thin floor plate: what is left when the plinth is switched off ----
+    const plateShape = roundedRectShape(modelSize.x + 0.06, modelSize.z + 0.06, 0.25);
+    const plateGeo = new THREE.ExtrudeGeometry(plateShape, {
+      depth: 0.07,
+      bevelEnabled: true,
+      bevelThickness: 0.02,
+      bevelSize: 0.02,
+      bevelSegments: 2,
+      curveSegments: 8,
+    });
+    plateGeo.rotateX(-Math.PI / 2);
+    plateGeo.computeBoundingBox();
+    plateGeo.translate(0, -plateGeo.boundingBox.max.y - 0.005, 0);
+    thinPlate = new THREE.Mesh(
+      plateGeo,
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#22304a'),
+        roughness: 0.9,
+        metalness: 0.0,
+      })
+    );
+    thinPlate.receiveShadow = true;
+    thinPlate.visible = false;
+    scene.add(thinPlate);
 
     // ---- camera framing ----
     fitRadius = modelSize.length() * 0.5;
@@ -578,7 +678,7 @@ loader.load(
     key.target.position.set(0, 0, 0);
     key.position.set(9, 18, 11);
 
-    if (LOW_POWER) downscaleBigTextures();
+    downscaleBigTextures();
     setupMirrors();
     setupLamps();
 
@@ -803,11 +903,26 @@ function goTop() {
   flyTo(new THREE.Vector3(0, d, 0.01), new THREE.Vector3(0, 0, 0));
 }
 
+function toggleSlab() {
+  if (!slab || !thinPlate) return slabMode;
+  slabMode = slabMode === 'plinth' ? 'plain' : 'plinth';
+  const plinth = slabMode === 'plinth';
+  slab.visible = plinth;
+  thinPlate.visible = !plinth;
+  if (softShadow) {
+    softShadow.position.y = plinth ? -0.64 : -0.11;
+    softShadow.material.opacity = plinth ? 0.9 : 0.55;
+  }
+  return slabMode;
+}
+
 function initUI() {
   const btnIso = document.getElementById('btn-iso');
   const btnTop = document.getElementById('btn-top');
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
+  const btnLight = document.getElementById('btn-light');
+  const btnSlab = document.getElementById('btn-slab');
   const hint = document.querySelector('.hint');
 
   btnIso.addEventListener('click', () => {
@@ -833,11 +948,27 @@ function initUI() {
     btnRotate.classList.toggle('active', controls.autoRotate);
   });
 
+  if (btnLight) {
+    btnLight.addEventListener('click', () => {
+      applyLighting(lightingMode === 'day' ? 'night' : 'day');
+      btnLight.classList.toggle('active', lightingMode === 'day');
+    });
+  }
+
+  if (btnSlab) {
+    btnSlab.addEventListener('click', () => {
+      toggleSlab();
+      btnSlab.classList.toggle('active', slabMode === 'plain');
+    });
+  }
+
   window.addEventListener('keydown', (e) => {
     if (e.key === '1') btnIso.click();
     if (e.key === '2') btnTop.click();
     if (e.key === '3') btnWalls.click();
     if (e.key === '4') btnRotate.click();
+    if (e.key === '5' && btnLight) btnLight.click();
+    if (e.key === '6' && btnSlab) btnSlab.click();
   });
 
   setTimeout(() => hint.classList.add('fade'), 9000);
@@ -859,6 +990,10 @@ function initUI() {
     lamps: lampStates,
     toggleLamp,
     weather: setWeather,
+    applyLighting,
+    lighting: () => lightingMode,
+    toggleSlab,
+    slab: () => slabMode,
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
