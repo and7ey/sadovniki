@@ -68,7 +68,8 @@ RECOLOR = {
     'modern_kitchen_11_075': 'c11',
     'modern_kitchen_11_095': 'c11',
     'Line2000006703': 'c09',
-    'Line2000006704': 'c09',
+    # bathroom west wall: fully tiled with the same 120 x 60 tile as the hall
+    'Line2000006704': 'tile',
     'Box2131642361': 'frosted',
     'Four_Pendant_Lights_amazing_set_vol21_008': 'lamp',
     'Four_Pendant_Lights_amazing_set_vol21_009': 'lamp',
@@ -78,9 +79,11 @@ RECOLOR = {
     'Tile_hall': 'tile',
     'Tile_wc': 'tile',
     'Tile_bath': 'tile',
-    'Tile_wall_bath': 'tile',
     'Box394': 'tile',
     'Box395': 'tile',
+    # kitchen: white carcass + black worktop
+    'Line017001': 'white',
+    'modern_kitchen_11_045': 'black',
     # plain white finishes
     'Maryland2': 'white',
     'Object657725862': 'white',
@@ -446,6 +449,8 @@ for key in sorted(all_keys):
         m = newmat('Apt_glass', GLASS_COL, 0.18, 0.05, 0.0)
     elif key == 'white':
         m = newmat('Apt_white', (1.0, 1.0, 1.0), 1.0, 0.8)
+    elif key == 'black':
+        m = newmat('Apt_black', (0.012, 0.012, 0.014), 1.0, 0.36, 0.25)
     elif key == 'mirror':
         m = newmat('Apt_mirror', (1.0, 1.0, 1.0), 1.0, 0.03, 1.0)
     elif key == 'frosted':

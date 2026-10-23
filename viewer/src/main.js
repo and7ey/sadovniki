@@ -447,6 +447,7 @@ function splitWalls() {
     (p.parent || apartment).add(mesh);
     wallMaterials.push(mat);
     wallMeshSet.add(mesh);
+    wallPatchMeshes.push(mesh);
   });
 
   wallsMesh = wallMeshSet.size ? [...wallMeshSet][0] : null;
@@ -542,6 +543,260 @@ function toggleLamp(id) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Wall paint — Caparol Amphibolin, matched to each patch's centre
+ * ------------------------------------------------------------------ */
+// mai 45 / palazzo 205 / marill 30 as sampled from the Caparol fan deck
+const PAINT_MAI = 0xb7b29b;
+const PAINT_PALAZZO = 0xe1c299;
+const PAINT_MARILL = 0xded4c9;
+
+const WALL_PAINT = [
+  { at: [-3.19, -2.28], hex: PAINT_MAI, name: 'Стена 33' },
+  { at: [4.075, 4.53], hex: PAINT_MAI, name: 'Стена 117' },
+  { at: [-2.95, -1.13], hex: PAINT_PALAZZO, name: 'Стена 35' },
+  { at: [1.15, -1.13], hex: PAINT_PALAZZO, name: 'Стена 83' },
+  { at: [2.49, 1.84], hex: PAINT_MARILL, name: 'Стена 101' },
+  { at: [2.49, 3.185], hex: PAINT_MARILL, name: 'Стена 106' },
+  { at: [2.39, 3.345], hex: PAINT_MARILL, name: 'Стена 107' },
+  { at: [2.49, 4.03], hex: PAINT_MARILL, name: 'Стена 109' },
+  { at: [-3.07, -0.37], hex: PAINT_MARILL, name: 'Стена 36' },
+  { at: [-0.90, 0.84], hex: PAINT_MARILL, name: 'Стена 58' },
+  { at: [1.27, -1.07], hex: PAINT_MARILL, name: 'Стена 84' },
+  { at: [4.015, 0.72], hex: PAINT_MARILL, name: 'Стена 115' },
+];
+
+// painted furniture panels / trims that are separate meshes in the model
+const OBJECT_PAINT = { Line013: PAINT_MARILL };
+
+function paintMeshMaterial(mat, hex) {
+  mat.color = new THREE.Color(hex);
+  mat.roughness = 0.88;
+  mat.metalness = 0.0;
+  if (mat.map) mat.map = null;
+  mat.needsUpdate = true;
+}
+
+function paintWalls() {
+  if (!wallPatchMeshes.length) return 0;
+  const done = new Set();
+  const box = new THREE.Box3();
+  const mid = new THREE.Vector3();
+  for (const mesh of wallPatchMeshes) {
+    box.setFromObject(mesh);
+    box.getCenter(mid);
+    let pick = null;
+    let best = 0.08; // metres
+    for (const w of WALL_PAINT) {
+      const d = Math.hypot(mid.x - w.at[0], mid.z - w.at[1]);
+      if (d <= best) {
+        best = d;
+        pick = w;
+      }
+    }
+    if (!pick) continue;
+    paintMeshMaterial(mesh.material, pick.hex);
+    done.add(pick.name);
+  }
+  for (const [name, hex] of Object.entries(OBJECT_PAINT)) {
+    const o = apartment.getObjectByName(name);
+    if (!o || !o.material) {
+      console.warn('[paint] missing', name);
+      continue;
+    }
+    o.material = (Array.isArray(o.material) ? o.material[0] : o.material).clone();
+    paintMeshMaterial(o.material, hex);
+    done.add(name);
+  }
+  const missing = WALL_PAINT.filter((w) => !done.has(w.name)).map((w) => w.name);
+  console.log('[paint]', done.size, 'surfaces',
+    missing.length ? 'not found: ' + missing.join(', ') : 'all matched');
+  return done.size;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Hall mirror — the wardrobe front was exported as two panes
+ * ------------------------------------------------------------------ */
+function mergeHallMirrors() {
+  if (!apartment) return;
+  const a = apartment.getObjectByName('Box2131642377');
+  const b = apartment.getObjectByName('Box2131642378');
+  if (!a || !b) {
+    console.warn('[mirror] hall panes not found');
+    return;
+  }
+  const box = new THREE.Box3().setFromObject(a);
+  box.union(new THREE.Box3().setFromObject(b));
+  const size = box.getSize(new THREE.Vector3());
+  const mid = box.getCenter(new THREE.Vector3());
+
+  const mat = (Array.isArray(a.material) ? a.material[0] : a.material).clone();
+  mat.name = 'Apt_mirror';
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(size.x, size.y), mat);
+  pane.name = 'MirrorHall';
+  pane.position.set(mid.x, mid.y, box.min.z - 0.004);
+  pane.rotation.y = Math.PI; // face into the hall
+  pane.receiveShadow = false;
+  pane.castShadow = false;
+  // the mirror meshes live under a group with a big offset, so add the merged
+  // pane to the apartment root and convert the world position to its space
+  apartment.add(pane);
+  apartment.worldToLocal(pane.position);
+
+  // the two originals stay in the scene (hidden) but must not be mirrored again
+  for (const old of [a, b]) {
+    old.visible = false;
+    if (old.material) {
+      old.material = (Array.isArray(old.material) ? old.material[0] : old.material).clone();
+      old.material.name = 'Apt_glass_pane';
+    }
+  }
+  console.log('[mirror] hall panes merged', size.x.toFixed(2), 'x', size.y.toFixed(2));
+}
+
+/* ------------------------------------------------------------------ *
+ *  LED coves + GU10 track lights (temporary switches in the HUD)
+ * ------------------------------------------------------------------ */
+// wall runs from the plan: living room along Стена 114 / 138 / 129,
+// kids' room along Стена 51.  a/b are the run ends in floor coordinates,
+// n points into the room.
+const LED_STRIPS = {
+  living: [
+    { a: [1.40, -2.93], b: [7.22, -2.93], n: [0, 1] },
+    { a: [7.23, -2.93], b: [7.23, 0.46], n: [-1, 0] },
+    { a: [6.10, 0.46], b: [7.23, 0.46], n: [0, -1] },
+  ],
+  kids: [
+    { a: [-2.91, -2.93], b: [1.11, -2.93], n: [0, 1] },
+  ],
+};
+
+// track rectangles measured on the lighting plan (2890 x 2000 / 2000 x 2190)
+const TRACKS = {
+  living: { x: [2.84, 5.73], z: [-2.12, -0.12] },
+  kids: { x: [-1.90, 0.10], z: [-2.76, -0.57] },
+};
+
+const LED_INTENSITY = 6;
+const TRACK_INTENSITY = 12;
+
+const ledGroups = {};
+const trackFixtureGroups = {};
+const trackLights = {};
+const trackLenses = {};
+const lightState = { ledLiving: false, ledKids: false, trackLiving: false, trackKids: false };
+
+function buildLedCoves() {
+  for (const [room, strips] of Object.entries(LED_STRIPS)) {
+    const group = new THREE.Group();
+    group.name = 'LED_' + room;
+    if (!LOW_POWER) {
+      for (const s of strips) {
+        const dx = s.b[0] - s.a[0];
+        const dz = s.b[1] - s.a[1];
+        const len = Math.hypot(dx, dz);
+        const count = Math.max(1, Math.round(len / 2.2));
+        for (let i = 0; i < count; i++) {
+          const t = (i + 0.5) / count;
+          const light = new THREE.PointLight(0xffc27a, 0, 5.5, 2);
+          light.position.set(
+            s.a[0] + dx * t + s.n[0] * 0.22,
+            2.82,
+            s.a[1] + dz * t + s.n[1] * 0.22
+          );
+          group.add(light);
+        }
+      }
+    }
+    scene.add(group);
+    ledGroups[room] = group;
+  }
+  console.log('[led] coves', Object.keys(ledGroups)
+    .map((k) => k + ':' + ledGroups[k].children.length).join(' '));
+}
+
+function buildTracks() {
+  for (const [room, t] of Object.entries(TRACKS)) {
+    const w = t.x[1] - t.x[0];
+    const d = t.z[1] - t.z[0];
+    const cx = (t.x[0] + t.x[1]) / 2;
+    const cz = (t.z[0] + t.z[1]) / 2;
+    const y = 2.945;
+
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x4b4d53, roughness: 0.45, metalness: 0.6 });
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x35363a, roughness: 0.4, metalness: 0.65 });
+    const lensMat = new THREE.MeshStandardMaterial({
+      color: 0x14140f,
+      roughness: 0.35,
+      emissive: new THREE.Color(0xffd9a4),
+      emissiveIntensity: 0,
+    });
+
+    const fixtures = new THREE.Group();
+    fixtures.name = 'Track_' + room;
+
+    const bar = (len, rotY, x, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.024, 0.038), railMat);
+      m.position.set(x, y, z);
+      m.rotation.y = rotY;
+      fixtures.add(m);
+    };
+    bar(w, 0, cx, t.z[0]);
+    bar(w, 0, cx, t.z[1]);
+    bar(d, Math.PI / 2, t.x[0], cz);
+    bar(d, Math.PI / 2, t.x[1], cz);
+
+    const inset = 0.26;
+    const heads = [
+      [t.x[0] + inset, t.z[0] + inset],
+      [t.x[1] - inset, t.z[0] + inset],
+      [t.x[0] + inset, t.z[1] - inset],
+      [t.x[1] - inset, t.z[1] - inset],
+    ];
+
+    const lights = [];
+    for (const [hx, hz] of heads) {
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.05, 0.085, 14), headMat);
+      head.position.set(hx, y - 0.07, hz);
+      fixtures.add(head);
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 14), lensMat);
+      lens.position.set(hx, y - 0.122, hz);
+      lens.rotation.x = Math.PI / 2;
+      fixtures.add(lens);
+
+      if (!LOW_POWER) {
+        const spot = new THREE.SpotLight(0xfff0d8, 0, 7, 0.62, 0.55, 2);
+        spot.position.set(hx, y - 0.13, hz);
+        spot.target.position.set(hx, 0, hz);
+        spot.castShadow = false;
+        scene.add(spot, spot.target);
+        lights.push(spot);
+      }
+    }
+
+    scene.add(fixtures);
+    trackFixtureGroups[room] = fixtures;
+    trackLights[room] = lights;
+    trackLenses[room] = lensMat;
+  }
+  console.log('[track]', Object.keys(trackLights)
+    .map((k) => k + ':' + trackLights[k].length).join(' '));
+}
+
+function setLight(kind, room, on) {
+  if (kind === 'led') {
+    const group = ledGroups[room];
+    if (group) group.children.forEach((l) => { if (l.isPointLight) l.intensity = on ? LED_INTENSITY : 0; });
+  } else {
+    (trackLights[room] || []).forEach((l) => { l.intensity = on ? TRACK_INTENSITY : 0; });
+    const lens = trackLenses[room];
+    if (lens) lens.emissiveIntensity = on ? 1 : 0;
+  }
+  lightState[kind + room[0].toUpperCase() + room.slice(1)] = on;
+  console.log('[light]', kind, room, on ? 'ON' : 'OFF');
+  return on;
+}
+
+/* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
 const loaderEl = document.getElementById('loader');
@@ -552,10 +807,9 @@ let wallsMesh = null;
 const wallSources = [];
 const wallMaterials = [];
 const wallMeshSet = new Set();
-let slab = null;
+const wallPatchMeshes = [];
 let thinPlate = null;
 let softShadow = null;
-let slabMode = 'plinth';
 
 const modelBox = new THREE.Box3();
 const modelSize = new THREE.Vector3();
@@ -721,7 +975,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=11',
+  './public/apartment.glb?v=12',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -802,34 +1056,6 @@ loader.load(
     modelBox.setFromObject(apartment);
     modelBox.getSize(modelSize);
 
-    // ---- base slab ----
-    const pad = 0.15;
-    const slabThickness = 0.42;
-    const shape = roundedRectShape(modelSize.x + pad * 2, modelSize.z + pad * 2, 0.7);
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      depth: slabThickness,
-      bevelEnabled: true,
-      bevelThickness: 0.08,
-      bevelSize: 0.08,
-      bevelSegments: 3,
-      curveSegments: 10,
-    });
-    geo.rotateX(-Math.PI / 2);
-    geo.computeBoundingBox();
-    geo.translate(0, -geo.boundingBox.max.y - 0.03, 0);
-
-    slab = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color('#22304a'),
-        roughness: 0.95,
-        metalness: 0.0,
-      })
-    );
-    slab.receiveShadow = true;
-    slab.castShadow = true;
-    scene.add(slab);
-
     // ---- soft contact shadow ----
     const soft = new THREE.Mesh(
       new THREE.PlaneGeometry(modelSize.x * 2.1, modelSize.z * 2.6),
@@ -837,11 +1063,11 @@ loader.load(
         map: makeSoftShadowTexture(),
         transparent: true,
         depthWrite: false,
-        opacity: 0.9,
+        opacity: 0.55,
       })
     );
     soft.rotation.x = -Math.PI / 2;
-    soft.position.y = -slabThickness - 0.22;
+    soft.position.y = -0.09;
     softShadow = soft;
     scene.add(soft);
 
@@ -896,7 +1122,7 @@ loader.load(
       })
     );
     thinPlate.receiveShadow = true;
-    thinPlate.visible = false;
+    thinPlate.visible = true;
     scene.add(thinPlate);
 
     // ---- camera framing ----
@@ -915,8 +1141,12 @@ loader.load(
 
     downscaleBigTextures();
     splitWalls();
+    paintWalls();
+    mergeHallMirrors();
     setupMirrors();
     setupLamps();
+    buildLedCoves();
+    buildTracks();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1139,27 +1369,30 @@ function goTop() {
   flyTo(new THREE.Vector3(0, d, 0.01), new THREE.Vector3(0, 0, 0));
 }
 
-function toggleSlab() {
-  if (!slab || !thinPlate) return slabMode;
-  slabMode = slabMode === 'plinth' ? 'plain' : 'plinth';
-  const plinth = slabMode === 'plinth';
-  slab.visible = plinth;
-  thinPlate.visible = !plinth;
-  if (softShadow) {
-    softShadow.position.y = plinth ? -0.64 : -0.11;
-    softShadow.material.opacity = plinth ? 0.9 : 0.55;
-  }
-  return slabMode;
-}
-
 function initUI() {
   const btnIso = document.getElementById('btn-iso');
   const btnTop = document.getElementById('btn-top');
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
   const btnLight = document.getElementById('btn-light');
-  const btnSlab = document.getElementById('btn-slab');
   const hint = document.querySelector('.hint');
+
+  // temporary switches for the LED coves and the GU10 track lights
+  const LIGHT_BUTTONS = [
+    ['btn-led-living', 'led', 'living'],
+    ['btn-led-kids', 'led', 'kids'],
+    ['btn-track-living', 'track', 'living'],
+    ['btn-track-kids', 'track', 'kids'],
+  ];
+  for (const [id, kind, room] of LIGHT_BUTTONS) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.addEventListener('click', () => {
+      const on = !lightState[kind + room[0].toUpperCase() + room.slice(1)];
+      setLight(kind, room, on);
+      btn.classList.toggle('active', on);
+    });
+  }
 
   btnIso.addEventListener('click', () => {
     goIso();
@@ -1191,20 +1424,12 @@ function initUI() {
     });
   }
 
-  if (btnSlab) {
-    btnSlab.addEventListener('click', () => {
-      toggleSlab();
-      btnSlab.classList.toggle('active', slabMode === 'plain');
-    });
-  }
-
   window.addEventListener('keydown', (e) => {
     if (e.key === '1') btnIso.click();
     if (e.key === '2') btnTop.click();
     if (e.key === '3') btnWalls.click();
     if (e.key === '4') btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
-    if (e.key === '6' && btnSlab) btnSlab.click();
   });
 
   setTimeout(() => hint.classList.add('fade'), 9000);
@@ -1228,8 +1453,8 @@ function initUI() {
     weather: setWeather,
     applyLighting,
     lighting: () => lightingMode,
-    toggleSlab,
-    slab: () => slabMode,
+    lightState,
+    setLight,
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {

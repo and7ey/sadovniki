@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=5" />
+  <link rel="stylesheet" href="./src/style.css?v=6" />
 </head>
 <body>
   <div id="app"></div>
@@ -30,7 +30,11 @@
       <span class="divider"></span>
       <button id="btn-walls" title="Показать/скрыть стены">Стены</button>
       <button id="btn-rotate" title="Автовращение">Вращение</button>
-      <button id="btn-slab" title="Толстая плита-основание / только тонкий пол">Плита</button>
+      <span class="divider"></span>
+      <button id="btn-led-living" title="Светодиодная лента — гостиная">Лента зал</button>
+      <button id="btn-led-kids" title="Светодиодная лента — детская">Лента дет</button>
+      <button id="btn-track-living" title="Треки GU10 — гостиная">Треки зал</button>
+      <button id="btn-track-kids" title="Треки GU10 — детская">Треки дет</button>
     </div>
 
     <div id="selected" class="selected" hidden>
@@ -67,6 +71,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=41"></script>
+  <script type="module" src="./src/main.js?v=42"></script>
 </body>
 </html>

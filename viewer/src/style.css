@@ -87,8 +87,11 @@ html, body {
   top: clamp(16px, 3vw, 34px);
   right: clamp(16px, 3vw, 34px);
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 4px;
+  max-width: calc(100vw - 34px);
   padding: 6px;
   border-radius: 16px;
   background: var(--glass);
@@ -258,6 +261,8 @@ body.gl-lost #gl-lost { display: grid; }
     bottom: 84px;
     right: 50%;
     transform: translateX(50%);
+    justify-content: center;
+    row-gap: 2px;
   }
   button { padding: 8px 10px; font-size: 12px; }
   .hint { gap: 12px; font-size: 11.5px; }
