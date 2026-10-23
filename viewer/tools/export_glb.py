@@ -44,6 +44,20 @@ REMOVE = {
 # merged groups of small objects to remove entirely (c02 deliberately kept)
 REMOVE_GROUPS = {'c01', 'c11', 'c13', 'c15'}
 
+# small decorative objects the size filter would drop, but which belong to a
+# visible feature: the four pendant lamps hanging over the Maryland2 table
+KEEP_ZONES = [
+    ((3.30, 7.05, 1.10), (5.30, 8.55, 3.20)),
+]
+
+
+def in_keep_zone(o):
+    c = o.matrix_world.translation
+    for lo, hi in KEEP_ZONES:
+        if lo[0] <= c.x <= hi[0] and lo[1] <= c.y <= hi[1] and lo[2] <= c.z <= hi[2]:
+            return True
+    return False
+
 # bucket overrides: object -> target bucket
 RECOLOR = {
     'Rectangle1174529065': 'white',
@@ -310,7 +324,10 @@ removed = 0
 kept = []
 for it in items:
     o, col, key = it
-    if san(o.name) in REMOVE or (key in REMOVE_GROUPS and o.dimensions.length < LARGE_MIN):
+    drop = san(o.name) in REMOVE or (key in REMOVE_GROUPS and o.dimensions.length < LARGE_MIN)
+    if drop and in_keep_zone(o):
+        drop = False
+    if drop:
         bpy.data.objects.remove(o, do_unlink=True)
         removed += 1
     else:

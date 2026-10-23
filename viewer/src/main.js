@@ -286,6 +286,11 @@ function setupMirrors() {
 
     const box = new THREE.Box3().setFromObject(mesh);
     const center = box.getCenter(new THREE.Vector3());
+
+    // the bulb sits *inside* the shade (as asked), so the shade itself must not
+    // cast a shadow: otherwise it seals the light in and the room stays dark.
+    // Walls still cast shadows, so light still does not leak between rooms.
+    mesh.castShadow = false;
     const size = box.getSize(new THREE.Vector3());
 
     // find the open side (the room) and step off the wall/wardrobe a little,
@@ -394,6 +399,60 @@ const LAMP_IDS = [
 ];
 const lampStates = new Map();
 
+/**
+ * The walls arrive as one mesh, which makes it impossible to select a single
+ * wall.  Split every wall mesh into flat connected patches and give each patch
+ * its own material, so walls can be picked (and later coloured) one by one.
+ */
+function splitWalls() {
+  // on phones the extra draw calls are not worth it: keep the merged walls,
+  // selection there just picks the whole wall mesh
+  if (LOW_POWER) {
+    for (const src of wallSources) {
+      if (src.material) wallMaterials.push(src.material);
+      wallMeshSet.add(src);
+    }
+    wallsMesh = wallSources[0] || null;
+    console.log('[walls] kept merged (low tier)');
+    return;
+  }
+
+  const patches = [];
+  for (const src of wallSources) {
+    if (!src.parent) continue;
+    const islands = planarIslands(src.geometry);
+    for (const geo of islands) {
+      const bb = geo.boundingBox;
+      const cx = bb ? (bb.min.x + bb.max.x) / 2 : 0;
+      const cz = bb ? (bb.min.z + bb.max.z) / 2 : 0;
+      patches.push({ geo, src, parent: src.parent, cx, cz });
+    }
+    src.parent.remove(src);
+    src.geometry.dispose();
+  }
+
+  // stable order: left to right, then front to back
+  patches.sort((a, b) => (Math.abs(a.cx - b.cx) > 0.4 ? a.cx - b.cx : a.cz - b.cz));
+
+  patches.forEach((p, i) => {
+    const mat = p.src.material.clone();
+    mat.name = 'Apt_wall_patch';
+    const mesh = new THREE.Mesh(p.geo, mat);
+    mesh.name = 'Стена ' + String(i + 1).padStart(2, '0');
+    mesh.position.copy(p.src.position);
+    mesh.quaternion.copy(p.src.quaternion);
+    mesh.scale.copy(p.src.scale);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    (p.parent || apartment).add(mesh);
+    wallMaterials.push(mat);
+    wallMeshSet.add(mesh);
+  });
+
+  wallsMesh = wallMeshSet.size ? [...wallMeshSet][0] : null;
+  console.log('[walls] split into', patches.length, 'selectable surfaces');
+}
+
 function setupLamps() {
   if (!apartment) return;
   for (const id of LAMP_IDS) {
@@ -405,6 +464,11 @@ function setupLamps() {
 
     const box = new THREE.Box3().setFromObject(mesh);
     const center = box.getCenter(new THREE.Vector3());
+
+    // the bulb sits *inside* the shade (as asked), so the shade itself must not
+    // cast a shadow: otherwise it seals the light in and the room stays dark.
+    // Walls still cast shadows, so light still does not leak between rooms.
+    mesh.castShadow = false;
 
     // each pendant gets its own material, so one lamp can glow without the others
     if (Array.isArray(mesh.material)) {
@@ -485,6 +549,9 @@ const progressEl = document.getElementById('progress');
 
 let apartment = null;
 let wallsMesh = null;
+const wallSources = [];
+const wallMaterials = [];
+const wallMeshSet = new Set();
 let slab = null;
 let thinPlate = null;
 let softShadow = null;
@@ -506,6 +573,145 @@ function idealDistance() {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Geometry helpers
+ * ------------------------------------------------------------------ */
+
+/** outline of the apartment floor as [[x, z], ...] in world space */
+function apartmentOutline() {
+  const mesh =
+    apartment.getObjectByName('ApartmentFloor') || apartment.getObjectByName('Apt_floor');
+  if (!mesh) return [];
+  const g = mesh.geometry;
+  const pos = g.attributes.position;
+  const idx = g.index ? Array.from(g.index.array) : [...Array(pos.count).keys()];
+  const w = mesh.matrixWorld;
+  const v = new THREE.Vector3();
+  const pts = [];
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(w);
+    pts.push([v.x, v.z]);
+  }
+  const count = new Map();
+  const key = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+    for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+      const k = key(p, q);
+      count.set(k, (count.get(k) || 0) + 1);
+    }
+  }
+  const next = new Map();
+  for (const [k, n] of count) {
+    if (n !== 1) continue;
+    const [a, b] = k.split('|').map(Number);
+    if (!next.has(a)) next.set(a, []);
+    next.get(a).push(b);
+    if (!next.has(b)) next.set(b, []);
+    next.get(b).push(a);
+  }
+  const start = [...next.keys()][0];
+  if (start === undefined) return [];
+  const loop = [];
+  let cur = start;
+  let prev = -1;
+  for (let guard = 0; guard < 4000; guard++) {
+    loop.push(pts[cur]);
+    const nb = next.get(cur).filter((n) => n !== prev);
+    if (!nb.length) break;
+    prev = cur;
+    cur = nb[0];
+    if (cur === start) break;
+  }
+  return loop;
+}
+
+/** split one mesh into flat, connected patches (one patch = one wall surface) */
+function planarIslands(geometry) {
+  const g = geometry;
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const uv = g.attributes.uv;
+  const idx = g.index ? Array.from(g.index.array) : [...Array(pos.count).keys()];
+  const triCount = Math.floor(idx.length / 3);
+  if (!triCount) return [];
+
+  const parent = new Int32Array(triCount);
+  for (let i = 0; i < triCount; i++) parent[i] = i;
+  const find = (a) => {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]];
+      a = parent[a];
+    }
+    return a;
+  };
+  const uni = (a, b) => {
+    a = find(a);
+    b = find(b);
+    if (a !== b) parent[b] = a;
+  };
+
+  const pa = new THREE.Vector3();
+  const pb = new THREE.Vector3();
+  const pc = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const plane = new Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    pa.fromBufferAttribute(pos, idx[t * 3]);
+    pb.fromBufferAttribute(pos, idx[t * 3 + 1]);
+    pc.fromBufferAttribute(pos, idx[t * 3 + 2]);
+    nrm.subVectors(pb, pa).cross(pc.clone().sub(pa)).normalize();
+    const d = nrm.dot(pa);
+    plane[t] = `${Math.round(nrm.x * 4)},${Math.round(nrm.y * 4)},${Math.round(
+      nrm.z * 4
+    )},${Math.round(d * 4)}`;
+  }
+
+  const owner = new Map();
+  for (let t = 0; t < triCount; t++) {
+    const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+    for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+      const k = p < q ? p + '|' + q : q + '|' + p;
+      const other = owner.get(k);
+      if (other === undefined) owner.set(k, t);
+      else if (plane[other] === plane[t]) uni(other, t);
+    }
+  }
+
+  const groups = new Map();
+  for (let t = 0; t < triCount; t++) {
+    const r = find(t);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(t);
+  }
+
+  const out = [];
+  for (const tris of groups.values()) {
+    const aPos = [];
+    const aNor = [];
+    const aUv = [];
+    const aIdx = [];
+    let n = 0;
+    for (const t of tris) {
+      for (let k = 0; k < 3; k++) {
+        const i = idx[t * 3 + k];
+        aPos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+        if (nor) aNor.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+        if (uv) aUv.push(uv.getX(i), uv.getY(i));
+        aIdx.push(n++);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(aPos, 3));
+    if (aNor.length) geo.setAttribute('normal', new THREE.Float32BufferAttribute(aNor, 3));
+    if (aUv.length) geo.setAttribute('uv', new THREE.Float32BufferAttribute(aUv, 2));
+    geo.setIndex(aIdx);
+    geo.computeBoundingBox();
+    out.push(geo);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
  *  Load model
  * ------------------------------------------------------------------ */
 const draco = new DRACOLoader();
@@ -515,7 +721,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=10',
+  './public/apartment.glb?v=11',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -555,7 +761,7 @@ loader.load(
         // walls are thin planes: let them occlude point lights from both faces
         m.shadowSide = THREE.DoubleSide;
         o.castShadow = true;
-        wallsMesh = o;
+        wallSources.push(o);
       }
       if (name.includes('floor')) {
         m.roughness = 0.55;
@@ -639,19 +845,48 @@ loader.load(
     softShadow = soft;
     scene.add(soft);
 
-    // ---- thin floor plate: what is left when the plinth is switched off ----
-    const plateShape = roundedRectShape(modelSize.x + 0.06, modelSize.z + 0.06, 0.25);
-    const plateGeo = new THREE.ExtrudeGeometry(plateShape, {
-      depth: 0.07,
-      bevelEnabled: true,
-      bevelThickness: 0.02,
-      bevelSize: 0.02,
-      bevelSegments: 2,
-      curveSegments: 8,
-    });
-    plateGeo.rotateX(-Math.PI / 2);
-    plateGeo.computeBoundingBox();
-    plateGeo.translate(0, -plateGeo.boundingBox.max.y - 0.005, 0);
+    // ---- thin floor plate: what is left when the plinth is switched off.
+    // It is extruded from the real floor outline, so it never sticks out
+    // beyond the apartment walls.
+    const outline = apartmentOutline();
+    let plateGeo;
+    if (outline.length > 2) {
+      const shapePts = outline.map(([x, z]) => [x, -z]);
+      // keep the winding counter-clockwise, otherwise the caps face down
+      let area = 0;
+      for (let i = 0; i < shapePts.length; i++) {
+        const [x1, y1] = shapePts[i];
+        const [x2, y2] = shapePts[(i + 1) % shapePts.length];
+        area += x1 * y2 - x2 * y1;
+      }
+      if (area < 0) shapePts.reverse();
+      const plateShape = new THREE.Shape();
+      plateShape.moveTo(shapePts[0][0], shapePts[0][1]);
+      for (let i = 1; i < shapePts.length; i++) plateShape.lineTo(shapePts[i][0], shapePts[i][1]);
+      plateShape.closePath();
+      plateGeo = new THREE.ExtrudeGeometry(plateShape, {
+        depth: 0.07,
+        bevelEnabled: false,
+        curveSegments: 1,
+      });
+      plateGeo.rotateX(-Math.PI / 2);
+      plateGeo.computeBoundingBox();
+      plateGeo.translate(0, -plateGeo.boundingBox.max.y - 0.005, 0);
+    } else {
+      // fallback: rounded rectangle around the bounding box
+      const plateShape = roundedRectShape(modelSize.x + 0.06, modelSize.z + 0.06, 0.25);
+      plateGeo = new THREE.ExtrudeGeometry(plateShape, {
+        depth: 0.07,
+        bevelEnabled: true,
+        bevelThickness: 0.02,
+        bevelSize: 0.02,
+        bevelSegments: 2,
+        curveSegments: 8,
+      });
+      plateGeo.rotateX(-Math.PI / 2);
+      plateGeo.computeBoundingBox();
+      plateGeo.translate(0, -plateGeo.boundingBox.max.y - 0.005, 0);
+    }
     thinPlate = new THREE.Mesh(
       plateGeo,
       new THREE.MeshStandardMaterial({
@@ -679,6 +914,7 @@ loader.load(
     key.position.set(9, 18, 11);
 
     downscaleBigTextures();
+    splitWalls();
     setupMirrors();
     setupLamps();
 
@@ -838,7 +1074,7 @@ function pickAt(clientX, clientY) {
 
   // faded walls and transparent glass should not block what is behind them
   const fadedWalls = wallTargetOpacity < 0.5;
-  const candidates = hits.filter((h) => !(fadedWalls && h.object === wallsMesh));
+  const candidates = hits.filter((h) => !(fadedWalls && wallMeshSet.has(h.object)));
   const solid = candidates.find((h) => !isGlassMesh(h.object));
   return solid || candidates[0] || hits[0];
 }
@@ -1119,18 +1355,22 @@ function render() {
     if (t >= 1) activeTween = null;
   }
 
-  if (wallsMesh) {
-    const mat = wallsMesh.material;
-    const cur = mat.opacity;
-    if (Math.abs(cur - wallTargetOpacity) > 0.004) {
-      mat.opacity = cur + (wallTargetOpacity - cur) * Math.min(1, dt * 9);
+  if (wallMaterials.length) {
+    const k = Math.min(1, dt * 9);
+    for (const mat of wallMaterials) {
+      if (mat.opacity === wallTargetOpacity && (wallTargetOpacity === 1 || mat.transparent)) {
+        continue;
+      }
       mat.transparent = true;
+      mat.opacity += (wallTargetOpacity - mat.opacity) * k;
+      if (Math.abs(mat.opacity - wallTargetOpacity) < 0.004) mat.opacity = wallTargetOpacity;
       mat.depthWrite = mat.opacity > 0.7;
-    } else if (mat.opacity !== wallTargetOpacity) {
-      mat.opacity = wallTargetOpacity;
-      mat.transparent = wallTargetOpacity < 0.99;
-      mat.depthWrite = wallTargetOpacity > 0.7;
       mat.needsUpdate = true;
+      if (mat.opacity >= 0.999) {
+        mat.opacity = 1;
+        mat.transparent = false;
+        mat.depthWrite = true;
+      }
     }
   }
 
