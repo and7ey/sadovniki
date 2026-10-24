@@ -8,8 +8,16 @@ os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 X0, X1, Y0, Y1 = 0.4, 16.8, 0.6, 11.6
 CAP = 900
+# шторы — самая тяжёлая геометрия (20 объектов); на глаз хватает 240 полигонов
+CURTAIN_CAP = 240
+CURTAINS = {
+    'Plane1202', 'Plane1204', 'Plane1203', 'Plane1199', 'Plane1197', 'Plane1209',
+    'Plane1198', 'Plane1200', 'Plane1210', 'Plane007', 'Plane009', 'Plane008',
+    'Plane003', 'Object002', 'Plane006', 'Plane004', 'Plane1215', 'Plane1214',
+    'Object9319', 'Plane1196',
+}
 # objects at least this big stay separate and clickable; smaller ones are merged per colour
-LARGE_MIN = 0.3
+LARGE_MIN = 0.45
 EXCLUDE_EXACT = {'Line018', 'Line2000006702'}
 WALL_OBJ = 'Layer:0.013'
 FLOOR_OBJ = 'ApartmentFloor'
@@ -514,12 +522,13 @@ def prep(o, key):
     for p in o.data.polygons:
         p.material_index = 0
     n = len(o.data.polygons)
-    if n > CAP:
+    cap = CURTAIN_CAP if san(o.name) in CURTAINS else CAP
+    if n > cap:
         if o.data.users > 1:
             o.data = o.data.copy()
         mod = o.modifiers.new('dec', 'DECIMATE')
         mod.decimate_type = 'COLLAPSE'
-        mod.ratio = CAP / n
+        mod.ratio = cap / n
         mod.use_collapse_triangulate = True
         bpy.context.view_layer.objects.active = o
         o.select_set(True)

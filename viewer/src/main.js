@@ -267,102 +267,50 @@ function setupMirrors() {
   });
   if (!mirrors.length) return;
 
-  const res = LOW_POWER ? 128 : 512;
   const wasVisible = mirrors.map((m) => m.visible);
   mirrors.forEach((m) => { m.visible = false; });
 
-  // low tier: no reflection capture at all, just a glossy panel
-  let shared = null;
+  // low tier: no capture at all, just a glossy panel
   if (LOW_POWER) {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xa8b6cc,
-      metalness: 0.85,
-      roughness: 0.18,
-    });
+    const mat = new THREE.MeshStandardMaterial({ color: 0xa8b6cc, metalness: 0.85, roughness: 0.18 });
     mat.name = 'Apt_mirror_live';
     mirrors.forEach((m) => { m.material = mat; });
     mirrors.forEach((m, i) => { m.visible = wasVisible[i]; });
     console.log('[mirrors] flat (low tier)');
     return;
   }
-  let sharedMat = null;
-  if (shared) {
-    sharedMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      metalness: 1.0,
-      roughness: 0.08,
-      envMap: shared.texture,
-      envMapIntensity: 1.0,
-    });
-    sharedMat.name = 'Apt_mirror_live';
-  }
 
-  mirrors.forEach((mesh) => {
-    if (sharedMat) {
-      mesh.material = sharedMat;
-      return;
-    }
+  // One little cube capture for the whole flat: 8 mirrors x 512 px cost ~48
+  // full-scene renders at load, this is 6 tiny ones.
+  const box = new THREE.Box3().setFromObject(apartment);
+  const center = box.getCenter(new THREE.Vector3());
+  center.y = 1.6;
 
-    const box = new THREE.Box3().setFromObject(mesh);
-    const center = box.getCenter(new THREE.Vector3());
-
-    // the bulb sits *inside* the shade (as asked), so the shade itself must not
-    // cast a shadow: otherwise it seals the light in and the room stays dark.
-    // Walls still cast shadows, so light still does not leak between rooms.
-    mesh.castShadow = false;
-    const size = box.getSize(new THREE.Vector3());
-
-    // find the open side (the room) and step off the wall/wardrobe a little,
-    // otherwise the capture is blocked by the wall the mirror is mounted on
-    const axis = size.x <= size.z
-      ? new THREE.Vector3(1, 0, 0)
-      : new THREE.Vector3(0, 0, 1);
-    const ray = new THREE.Raycaster();
-    const dists = [];
-    for (const dir of [axis, axis.clone().negate()]) {
-      ray.set(center.clone().addScaledVector(dir, 0.001), dir);
-      ray.far = 12;
-      const hits = ray.intersectObject(apartment, true).filter((h) =>
-        h.object !== mesh &&
-        h.object.isMesh &&
-        !/apt_mirror/i.test((h.object.material && h.object.material.name) || '')
-      );
-      dists.push(hits.length ? hits[0].distance : 12);
-    }
-    const openDir = dists[0] >= dists[1] ? axis : axis.clone().negate();
-    const openDist = Math.max(dists[0], dists[1]);
-    const offset = openDir.multiplyScalar(Math.min(0.6, Math.max(0.12, openDist * 0.35)));
-
-    let envTexture;
-    if (shared) {
-      envTexture = shared.texture;
-    } else {
-      const rt = new THREE.WebGLCubeRenderTarget(res, {
-        generateMipmaps: false,
-        minFilter: THREE.LinearFilter,
-        magFilter: THREE.LinearFilter,
-      });
-      const cam = new THREE.CubeCamera(0.05, 60, rt);
-      cam.position.copy(center).add(offset);
-      scene.add(cam);
-      cam.update(renderer, scene);
-      scene.remove(cam);
-      envTexture = rt.texture;
-    }
-
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      metalness: 1.0,
-      roughness: shared ? 0.08 : 0.0,
-      envMap: envTexture,
-      envMapIntensity: 1.0,
-    });
-    mat.name = 'Apt_mirror_live';
-    mesh.material = mat;
+  const rt = new THREE.WebGLCubeRenderTarget(128, {
+    generateMipmaps: false,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
   });
+  const cam = new THREE.CubeCamera(0.1, 60, rt);
+  cam.position.copy(center);
+  scene.add(cam);
+  cam.update(renderer, scene);
+  scene.remove(cam);
 
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    metalness: 1.0,
+    roughness: 0.06,
+    envMap: rt.texture,
+    envMapIntensity: 1.0,
+  });
+  mat.name = 'Apt_mirror_live';
+  mirrors.forEach((m) => {
+    m.material = mat;
+    m.castShadow = false;
+  });
   mirrors.forEach((m, i) => { m.visible = wasVisible[i]; });
-  console.log('[mirrors]', mirrors.map((m) => m.name).join(', '));
+  console.log('[mirrors] one 128px capture for', mirrors.length, 'panes');
 }
 
 
@@ -380,7 +328,7 @@ function downscaleBigTextures() {
       const old = m.map;
       seen.add(old);
       const img = old.image;
-      const maxW = LOW_POWER ? 1024 : 4096;
+      const maxW = LOW_POWER ? 512 : 1024;
       if (!img || !img.width || img.width <= maxW) continue;
 
       const c = document.createElement('canvas');
@@ -776,7 +724,8 @@ const EXTRA_ROOMS = {
   },
   balcony: {
     label: 'балкон',
-    points: [[-6.60, -3.20], [-5.26, -3.20], [-3.90, -3.20]],
+    // балкон: между остеклением (z ≈ -4.5) и Стена 12 (z = -3.4)
+    points: [[-6.10, -3.95], [-5.00, -3.95], [-3.90, -3.95]],
   },
 };
 
@@ -1307,7 +1256,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=13',
+  './public/apartment.glb?v=14',
   (gltf) => {
     apartment = gltf.scene;
 
