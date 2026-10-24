@@ -102,7 +102,21 @@ const LIGHT_PRESETS = {
     rim: [0xffffff, 0.5],
     bg: ['#b9cde4', '#dbe7f4', '#f5f8fc'],
   },
+  evening: {
+    label: 'Вечер',
+    exposure: 0.9,
+    env: 0.16,
+    hemi: [0x59405c, 0x120b10, 0.34],
+    key: [0xffb072, 0.5],
+    fill: [0x7a5570, 0.28],
+    rim: [0xffc18a, 0.22],
+    bg: ['#1b1220', '#2d1b2b', '#120a12'],
+  },
 };
+
+// Ночь → День → Вечер → Ночь
+const LIGHT_CYCLE = ['night', 'day', 'evening'];
+const LIGHT_NEXT_LABEL = { night: 'День', day: 'Вечер', evening: 'Ночь' };
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 if (!LOW_POWER) {
@@ -168,7 +182,10 @@ function applyLighting(mode) {
   setBackground(p.bg);
   document.body.classList.toggle('day', mode === 'day');
   const btn = document.getElementById('btn-light');
-  if (btn) btn.textContent = mode === 'day' ? 'Ночь' : 'День';
+  if (btn) {
+    btn.textContent = LIGHT_NEXT_LABEL[mode] || 'День';
+    btn.title = 'Освещение: ' + p.label + ' → ' + (LIGHT_NEXT_LABEL[mode] || '');
+  }
   return mode;
 }
 
@@ -685,6 +702,30 @@ const LED_RUNS = {
     // вертикальная лента по левому краю зеркала Box2131642365
     { a: [4.73, 0.40, 0.94], b: [4.73, 2.72, 0.94], count: 2 },
   ],
+  bath: [
+    // сверху Стена 27
+    { a: [-4.60, 2.82, 0.95], b: [-4.60, 2.82, 2.75], count: 2 },
+    // сверху Line2000006704
+    { a: [-7.00, 2.82, 0.70], b: [-7.00, 2.82, 3.00], count: 2 },
+    // по бокам Box2131642354
+    { a: [-6.28, 0.50, 2.68], b: [-6.28, 2.50, 2.68], count: 1 },
+    { a: [-5.50, 0.50, 2.68], b: [-5.50, 2.50, 2.68], count: 1 },
+    // по бокам Box2131642355
+    { a: [-5.33, 0.50, 2.68], b: [-5.33, 2.50, 2.68], count: 1 },
+    { a: [-4.55, 0.50, 2.68], b: [-4.55, 2.50, 2.68], count: 1 },
+    // под тумбой Unit_Cabinet_270(h)x500_005
+    { a: [-6.40, 0.33, 2.53], b: [-4.55, 0.33, 2.53], count: 2 },
+    // внутри верхнего дальнего угла Box2131642357
+    { a: [-6.25, 1.44, 0.95], b: [-5.60, 1.44, 0.95], count: 1 },
+  ],
+  wc: [
+    // внутри верхнего дальнего угла Box397
+    { a: [-0.85, 1.44, 3.98], b: [0.13, 1.44, 3.98], count: 1 },
+    // слева от Box398
+    { a: [-0.93, 0.40, 2.60], b: [-0.93, 2.50, 2.60], count: 1 },
+    // сверху Стена 70
+    { a: [-0.85, 2.82, 3.70], b: [0.15, 2.82, 3.70], count: 1 },
+  ],
 };
 
 // Track layout from the lighting plan.  `rect` is a rectangular track with
@@ -719,8 +760,28 @@ const TRACKS = {
   },
 };
 
+// потолочные споты вне треков: ванная (GX53 3×3), санузел, балкон
+const EXTRA_ROOMS = {
+  bath: {
+    label: 'ванная',
+    points: [
+      [-6.75, 1.10], [-5.80, 1.10], [-4.85, 1.10],
+      [-6.75, 1.85], [-5.80, 1.85], [-4.85, 1.85],
+      [-6.75, 2.60], [-5.80, 2.60], [-4.85, 2.60],
+    ],
+  },
+  wc: {
+    label: 'санузел',
+    points: [[-0.35, 2.35], [-0.35, 2.95], [-0.35, 3.55]],
+  },
+  balcony: {
+    label: 'балкон',
+    points: [[-6.60, -3.20], [-5.26, -3.20], [-3.90, -3.20]],
+  },
+};
+
 const LED_INTENSITY = 4;
-const TRACK_DEFAULT = 18;
+const TRACK_DEFAULT = 10;
 const CEILING_Y = 3.0;
 
 // Every light costs frame time: a scene with 29 spot lights renders at ~13 fps
@@ -746,6 +807,11 @@ const lightState = {
   trackKids: false,
   trackCorridor: false,
   trackKitchen: false,
+  trackBath: false,
+  trackWc: false,
+  trackBalcony: false,
+  ledBath: false,
+  ledWc: false,
 };
 let pendingMove = null;     // { room, index } while a lamp is being re-placed
 
@@ -936,6 +1002,26 @@ function buildTracks() {
     trackGroups[room] = group;
     trackFixtures[room] = fixtures;
   }
+
+  // потолочные споты ванной / санузла / балкона — те же плафоны, без реек
+  for (const [room, def] of Object.entries(EXTRA_ROOMS)) {
+    const group = new THREE.Group();
+    group.name = 'Track_' + room;
+    const fixtures = [];
+    def.points.forEach((p, i) => {
+      const head = new THREE.Mesh(new THREE.CircleGeometry(0.05, 20), lensMat.clone());
+      head.rotation.x = Math.PI / 2;
+      head.position.set(p[0], 2.94, p[1]);
+      head.userData.track = { room, index: i };
+      head.name = 'Лампа ' + def.label + ' ' + (i + 1);
+      group.add(head);
+      fixtures.push({ x: p[0], y: 2.92, z: p[1], intensity: trackIntensity[room] ?? TRACK_DEFAULT, mesh: head });
+    });
+    scene.add(group);
+    trackGroups[room] = group;
+    trackFixtures[room] = fixtures;
+    trackIntensity[room] = trackIntensity[room] ?? TRACK_DEFAULT;
+  }
   console.log('[track] built', Object.keys(trackFixtures)
     .map((k) => k + ':' + trackFixtures[k].length).join(' '));
 }
@@ -975,7 +1061,7 @@ function setLight(kind, room, on) {
 function setTrackIntensity(room, value) {
   const v = Math.max(0, Number(value) || 0);
   trackIntensity[room] = v;
-  for (const f of trackFixtures[room] || []) f.intensity = v;
+  for (const f of trackFixtures[room] || []) if (f) f.intensity = v;
   refreshTracks();
   return v;
 }
@@ -1221,7 +1307,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=12',
+  './public/apartment.glb?v=13',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -1645,6 +1731,11 @@ function initUI() {
     ['btn-track-kids', 'track', 'kids'],
     ['btn-track-corridor', 'track', 'corridor'],
     ['btn-track-kitchen', 'track', 'kitchen'],
+    ['btn-track-bath', 'track', 'bath'],
+    ['btn-track-wc', 'track', 'wc'],
+    ['btn-track-balcony', 'track', 'balcony'],
+    ['btn-led-bath', 'led', 'bath'],
+    ['btn-led-wc', 'led', 'wc'],
   ];
   const TRACK_ROWS = [
     ['living', 'Гостиная'],
@@ -1701,7 +1792,8 @@ function initUI() {
 
   if (btnLight) {
     btnLight.addEventListener('click', () => {
-      applyLighting(lightingMode === 'day' ? 'night' : 'day');
+      const i = LIGHT_CYCLE.indexOf(lightingMode);
+      applyLighting(LIGHT_CYCLE[(i + 1) % LIGHT_CYCLE.length]);
       btnLight.classList.toggle('active', lightingMode === 'day');
     });
   }

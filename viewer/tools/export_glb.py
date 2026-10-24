@@ -41,6 +41,14 @@ REMOVE = {
     # third batch
     'Shape', 'Box003', 'BAMBOO_20062024_GOLD_XL', 'Loft034', 'Object027', 'Object026',
 }
+# гардероб/книги/обувь — декоративная мелочь: убираем целиком
+REMOVE_EXTRA = {
+    'Line124001', 'Line125001',
+    'The_Star_Trail_ankle_boot,_one_of_Louis_Vuitton001',
+    'The_Star_Trail_ankle_boot,_one_of_Louis_Vuitton002',
+}
+REMOVE_PREFIX = ('set_19_',)
+
 # merged groups of small objects to remove entirely (c02 deliberately kept)
 REMOVE_GROUPS = {'c01', 'c11', 'c13', 'c15'}
 
@@ -327,7 +335,9 @@ removed = 0
 kept = []
 for it in items:
     o, col, key = it
-    drop = san(o.name) in REMOVE or (key in REMOVE_GROUPS and o.dimensions.length < LARGE_MIN)
+    name = san(o.name)
+    drop = (name in REMOVE or name in REMOVE_EXTRA or name.startswith(REMOVE_PREFIX)
+            or (key in REMOVE_GROUPS and o.dimensions.length < LARGE_MIN))
     if drop and in_keep_zone(o):
         drop = False
     if drop:
