@@ -720,19 +720,17 @@ const TRACKS = {
 };
 
 const LED_INTENSITY = 4;
-const TRACK_DEFAULT = 12;
+const TRACK_DEFAULT = 18;
 const CEILING_Y = 3.0;
 
 // Every light costs frame time: a scene with 29 spot lights renders at ~13 fps
 // on this machine, 16 stay at 60.  So both coves and tracks share a fixed pool
 // of lights that is re-aimed at the lamps of the groups that are switched on.
-const LED_POOL = 10;
-const SPOT_POOL = 12;
-const LED_SHADOW_COUNT = 8;
-// The GPU only has ~16 texture units, and every shadow-casting light takes one.
-// 8 coves + 4 spots fit next to the material maps; a 15th shadow map makes the
-// whole scene disappear, so the pendant lights no longer cast shadows.
-const SPOT_SHADOW_COUNT = 4;
+const LED_POOL = 6;
+const SPOT_POOL = 6;
+// The GPU only has ~16 texture units and every shadow-casting light takes one:
+// 6 coves + 6 track lamps = 12 fit next to the material maps, 15+ makes the
+// whole scene disappear.  So the pendant lights no longer cast shadows.
 
 const ledPool = [];
 const spotPool = [];
@@ -851,27 +849,29 @@ function buildLightPools() {
     // slower falloff + more sources per run: the cove reads as one even wash
     // instead of a row of separate pools
     const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
-    light.castShadow = i < LED_SHADOW_COUNT;
+    light.castShadow = true;
     light.shadow.mapSize.set(256, 256);
     light.shadow.camera.near = 0.06;
     light.shadow.camera.far = 8;
     light.shadow.bias = -0.004;
     light.shadow.normalBias = 0.03;
     light.shadow.autoUpdate = false;
+    light.shadow.needsUpdate = true;
     scene.add(light);
     ledPool.push(light);
   }
   for (let i = 0; i < SPOT_POOL; i++) {
     // GU10, 640 lm
-    // wide open cone (no shade): ~2.0 rad total, soft edge, slow falloff
-    const spot = new THREE.SpotLight(0xfff0d8, 0, 9, 0.95, 1.0, 1.7);
-    spot.castShadow = i < SPOT_SHADOW_COUNT;
+    // open lamp: nearly a downward hemisphere, fully soft edge, slow falloff
+    const spot = new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
+    spot.castShadow = true;
     spot.shadow.mapSize.set(512, 512);
     spot.shadow.camera.near = 0.08;
     spot.shadow.camera.far = 8;
     spot.shadow.bias = -0.0025;
     spot.shadow.normalBias = 0.03;
     spot.shadow.autoUpdate = false;
+    spot.shadow.needsUpdate = true;
     scene.add(spot, spot.target);
     spotPool.push(spot);
   }
