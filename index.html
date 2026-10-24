@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Квартира — 3D</title>
+  <link rel="stylesheet" href="./src/style.css?v=8" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud">
+    <section class="weather" id="weather" data-entity="weather.home">
+      <div class="weather-icon" id="weather-icon">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.6 34h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 34Z" />
+        </svg>
+      </div>
+      <div class="weather-body">
+        <div class="weather-temp" id="weather-temp">8 °C</div>
+        <div class="weather-state" id="weather-state">Облачно</div>
+      </div>
+    </section>
+
+    <div class="controls">
+      <button id="btn-iso" class="active" title="Изометрический вид">Изометрия</button>
+      <button id="btn-light" title="Дневное / ночное освещение">День</button>
+      <button id="btn-top" title="Вид сверху">Сверху</button>
+      <span class="divider"></span>
+      <button id="btn-walls" title="Показать/скрыть стены">Стены</button>
+      <button id="btn-rotate" title="Автовращение">Вращение</button>
+      <span class="divider"></span>
+      <button id="btn-led-living" title="Светодиодная лента — гостиная">Лента зал</button>
+      <button id="btn-led-kids" title="Светодиодная лента — детская">Лента дет</button>
+      <button id="btn-led-kitchen" title="Светодиодная лента — кухня (стена 14 и шкафы)">Лента кух</button>
+      <button id="btn-led-hall" title="Светодиодная лента — спальня, вертикальная у зеркала">Лента спальня</button>
+      <button id="btn-track-living" title="Треки GU10 — гостиная">Треки зал</button>
+      <button id="btn-track-kids" title="Треки GU10 — детская">Треки дет</button>
+      <button id="btn-track-corridor" title="Треки GU10 — коридор">Треки кор</button>
+      <button id="btn-track-kitchen" title="Треки GU10 — кухня">Треки кух</button>
+    </div>
+
+
+    <div class="track-panel" id="track-panel">
+      <div class="tp-title">Яркость треков</div>
+      <label class="tp-row"><span>Гостиная</span><input type="range" id="tp-living" min="0" max="40" step="0.5" value="12" /><b id="tpv-living">12</b></label>
+      <label class="tp-row"><span>Детская</span><input type="range" id="tp-kids" min="0" max="40" step="0.5" value="12" /><b id="tpv-kids">12</b></label>
+      <label class="tp-row"><span>Коридор</span><input type="range" id="tp-corridor" min="0" max="40" step="0.5" value="12" /><b id="tpv-corridor">12</b></label>
+      <label class="tp-row"><span>Кухня</span><input type="range" id="tp-kitchen" min="0" max="40" step="0.5" value="12" /><b id="tpv-kitchen">12</b></label>
+    </div>
+
+    <div id="selected" class="selected" hidden>
+      <span class="selected-label">Выбрано</span>
+      <code id="selected-id"></code>
+      <span id="selected-size" class="selected-size"></span>
+    </div>
+
+    <div class="hint">
+      <span><b>ЛКМ</b> — вращать</span>
+      <span><b>Колесо</b> — масштаб</span>
+      <span><b>ПКМ</b> — сдвинуть</span>
+      <span><b>Клик</b> — выбрать объект</span>
+    </div>
+  </div>
+
+  <div id="gl-lost" class="gl-lost" hidden>
+    <p>Не хватило памяти видеокарты для этой сцены.</p>
+    <button type="button" onclick="location.reload()">Перезагрузить</button>
+  </div>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-ring"></div>
+      <div class="loader-text">Загружаем квартиру… <span id="progress">0%</span></div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+  <script type="module" src="./src/main.js?v=48"></script>
+</body>
+</html>
