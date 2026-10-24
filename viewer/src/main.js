@@ -863,7 +863,8 @@ function buildLightPools() {
   }
   for (let i = 0; i < SPOT_POOL; i++) {
     // GU10, 640 lm
-    const spot = new THREE.SpotLight(0xfff0d8, 0, 7.5, 0.78, 0.85, 2);
+    // wide open cone (no shade): ~2.0 rad total, soft edge, slow falloff
+    const spot = new THREE.SpotLight(0xfff0d8, 0, 9, 0.95, 1.0, 1.7);
     spot.castShadow = i < SPOT_SHADOW_COUNT;
     spot.shadow.mapSize.set(512, 512);
     spot.shadow.camera.near = 0.08;
@@ -882,12 +883,11 @@ function buildLightPools() {
  * ------------------------------------------------------------------ */
 function buildTracks() {
   const railMat = new THREE.MeshStandardMaterial({ color: 0x35373c, roughness: 0.45, metalness: 0.6 });
-  const headMat = new THREE.MeshStandardMaterial({ color: 0x26282c, roughness: 0.4, metalness: 0.65 });
   const lensMat = new THREE.MeshStandardMaterial({
     color: 0x1a1a16,
     roughness: 0.3,
     emissive: new THREE.Color(0xffd9a4),
-    emissiveIntensity: 0.35,
+    emissiveIntensity: 0.55,
   });
 
   const bar = (group, a, b, y) => {
@@ -919,18 +919,15 @@ function buildTracks() {
         fixtures.push(null);
         return;
       }
-      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.095, 16), headMat.clone());
-      head.position.set(p[0], 2.9, p[2]);
+      // без абажура: только плоская светящаяся шайба на шинопроводе.
+      // так свет расходится шире и ровнее, а плафон его не «режет»
+      const head = new THREE.Mesh(new THREE.CircleGeometry(0.05, 20), lensMat.clone());
+      head.rotation.x = Math.PI / 2; // смотрит вниз
+      head.position.set(p[0], 2.94, p[2]);
       head.castShadow = false;
       head.userData.track = { room, index: i };
       head.name = 'Лампа ' + track.label + ' ' + (i + 1);
       group.add(head);
-
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.038, 16), lensMat);
-      lens.position.set(p[0], 2.852, p[2]);
-      lens.rotation.x = Math.PI / 2;
-      lens.userData.track = { room, index: i };
-      group.add(lens);
 
       fixtures.push({ x: p[0], y: p[1], z: p[2], intensity: trackIntensity[room], mesh: head });
     });
@@ -1001,7 +998,7 @@ function startFixtureMove(room, index) {
   if (pendingMove) clearFixtureHighlight();
   pendingMove = { room, index };
   f.mesh.material.color.setHex(0xff8a3d);
-  f.mesh.material.emissive.setHex(0x552200);
+  f.mesh.material.emissive.setHex(0xff8a3d);
   console.log('[fixture] выбран', 'Лампа ' + TRACKS[room].label + ' ' + (index + 1),
     '— кликните новое место');
   showHint('Лампа ' + TRACKS[room].label + ' ' + (index + 1) + ': кликните новое место');
@@ -1011,8 +1008,8 @@ function clearFixtureHighlight() {
   if (!pendingMove) return;
   const f = trackFixtures[pendingMove.room] && trackFixtures[pendingMove.room][pendingMove.index];
   if (f) {
-    f.mesh.material.color.setHex(0x26282c);
-    f.mesh.material.emissive.setHex(0x000000);
+    f.mesh.material.color.setHex(0x1a1a16);
+    f.mesh.material.emissive.setHex(0xffd9a4);
   }
   pendingMove = null;
   showHint('');
