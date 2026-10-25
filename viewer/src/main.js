@@ -913,11 +913,13 @@ function buildTracks() {
     group.add(mesh);
   };
 
+  // рейки и плафоны не рисуем: важно только освещение
+  const SHOW_FIXTURES = false;
   for (const [room, track] of Object.entries(TRACKS)) {
     const group = new THREE.Group();
     group.name = 'Track_' + room;
 
-    if (track.rect) {
+    if (SHOW_FIXTURES && track.rect) {
       const { x, z } = track.rect;
       const y = 2.955;
       bar(group, [x[0], z[0]], [x[1], z[0]], y);
@@ -925,13 +927,17 @@ function buildTracks() {
       bar(group, [x[0], z[0]], [x[0], z[1]], y);
       bar(group, [x[1], z[0]], [x[1], z[1]], y);
     }
-    for (const s of track.strips || []) bar(group, s.a, s.b, 2.955);
+    if (SHOW_FIXTURES) for (const s of track.strips || []) bar(group, s.a, s.b, 2.955);
 
     const fixtures = [];
     const skip = new Set(track.skip || []);
     trackPoints(track).forEach((p, i) => {
       if (skip.has(i)) {
         fixtures.push(null);
+        return;
+      }
+      if (!SHOW_FIXTURES) {
+        fixtures.push({ x: p[0], y: p[1], z: p[2], intensity: trackIntensity[room], mesh: null });
         return;
       }
       // без абажура: только плоская светящаяся шайба на шинопроводе.
@@ -958,6 +964,10 @@ function buildTracks() {
     group.name = 'Track_' + room;
     const fixtures = [];
     def.points.forEach((p, i) => {
+      if (!SHOW_FIXTURES) {
+        fixtures.push({ x: p[0], y: 2.92, z: p[1], intensity: TRACK_DEFAULT, mesh: null });
+        return;
+      }
       const head = new THREE.Mesh(new THREE.CircleGeometry(0.05, 20), lensMat.clone());
       head.rotation.x = Math.PI / 2;
       head.position.set(p[0], 2.94, p[1]);
@@ -1029,7 +1039,7 @@ function fixtureAt(object) {
 
 function startFixtureMove(room, index) {
   const f = trackFixtures[room] && trackFixtures[room][index];
-  if (!f) return;
+  if (!f || !f.mesh) return;
   if (pendingMove) clearFixtureHighlight();
   pendingMove = { room, index };
   f.mesh.material.color.setHex(0xff8a3d);
@@ -1042,7 +1052,7 @@ function startFixtureMove(room, index) {
 function clearFixtureHighlight() {
   if (!pendingMove) return;
   const f = trackFixtures[pendingMove.room] && trackFixtures[pendingMove.room][pendingMove.index];
-  if (f) {
+  if (f && f.mesh) {
     f.mesh.material.color.setHex(0x1a1a16);
     f.mesh.material.emissive.setHex(0xffd9a4);
   }
@@ -1056,8 +1066,10 @@ function moveFixtureTo(point) {
   const f = trackFixtures[room][index];
   f.x = point.x;
   f.z = point.z;
-  f.mesh.position.x = point.x;
-  f.mesh.position.z = point.z;
+  if (f.mesh) {
+    f.mesh.position.x = point.x;
+    f.mesh.position.z = point.z;
+  }
   const name = 'Лампа ' + TRACKS[room].label + ' ' + (index + 1);
   console.log('[fixture]', name, 'x', point.x.toFixed(2), 'z', point.z.toFixed(2));
   showHint(name + ' → x ' + point.x.toFixed(2) + ', z ' + point.z.toFixed(2));
@@ -1630,14 +1642,125 @@ function setupSelection() {
 
   el.addEventListener('pointercancel', () => { down = null; });
 
+  // двойной клик по комнате: изолировать / вернуть общий вид
+  el.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    toggleRoomAt(e.clientX, e.clientY);
+  });
+
+  let lastTap = 0;
+  let lastTapPos = { x: 0, y: 0 };
+  el.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const now = performance.now();
+    if (now - lastTap < 320 &&
+        Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) < 34) {
+      lastTap = 0;
+      toggleRoomAt(e.clientX, e.clientY);
+    } else {
+      lastTap = now;
+      lastTapPos = { x: e.clientX, y: e.clientY };
+    }
+  });
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') deselect();
   });
 }
 
 /* ------------------------------------------------------------------ *
+ *  Double click a room: isolate it, double click again to come back
+ * ------------------------------------------------------------------ */
+const ROOMS = {
+  kids: { label: 'детская', x: [-2.95, 1.15], z: [-2.98, 0.72], y: [-0.05, 3.0] },
+};
+
+let isolatedRoom = null;
+let savedView = null;
+
+function roomUnder(point) {
+  for (const [id, r] of Object.entries(ROOMS)) {
+    if (point.x >= r.x[0] - 0.08 && point.x <= r.x[1] + 0.08 &&
+        point.z >= r.z[0] - 0.08 && point.z <= r.z[1] + 0.08) return id;
+  }
+  return null;
+}
+
+function isolateRoom(id) {
+  const r = ROOMS[id];
+  renderer.clippingPlanes = [
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), -r.x[0]),
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), r.x[1]),
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), -r.z[0]),
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), r.z[1]),
+    new THREE.Plane(new THREE.Vector3(0, 1, 0), -r.y[0]),
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), r.y[1]),
+  ];
+  isolatedRoom = id;
+
+  const cx = (r.x[0] + r.x[1]) / 2;
+  const cz = (r.z[0] + r.z[1]) / 2;
+  const target = new THREE.Vector3(cx, 1.15, cz);
+  const size = Math.max(r.x[1] - r.x[0], r.z[1] - r.z[0]);
+  const vFov = THREE.MathUtils.degToRad(camera.fov);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const dist = (size * 0.62) / Math.tan(Math.min(vFov, hFov) / 2) + 0.8;
+  const dir = new THREE.Vector3(0.62, 0.7, 0.95).normalize();
+  flyToArc(target.clone().addScaledVector(dir, dist), target, 1100);
+  showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
+  console.log('[room] isolate', id, 'dist', dist.toFixed(1));
+}
+
+function restoreView() {
+  renderer.clippingPlanes = [];
+  isolatedRoom = null;
+  if (savedView) {
+    flyToArc(savedView.pos, savedView.target, 1000);
+    savedView = null;
+  }
+  console.log('[room] restore');
+}
+
+function toggleRoomAt(clientX, clientY) {
+  const hit = pickAt(clientX, clientY);
+  if (!hit) return;
+  const id = roomUnder(hit.point);
+  if (!id) return;
+  if (isolatedRoom === id) {
+    restoreView();
+    return;
+  }
+  if (!isolatedRoom) {
+    savedView = { pos: camera.position.clone(), target: controls.target.clone() };
+  }
+  isolateRoom(id);
+}
+
+/* ------------------------------------------------------------------ *
  *  UI
  * ------------------------------------------------------------------ */
+function flyToArc(position, target, duration = 1100) {
+  const fromTarget = controls.target.clone();
+  const s0 = new THREE.Spherical().setFromVector3(camera.position.clone().sub(fromTarget));
+  const s1 = new THREE.Spherical().setFromVector3(position.clone().sub(target));
+  let dTheta = s1.theta - s0.theta;
+  while (dTheta > Math.PI) dTheta -= Math.PI * 2;
+  while (dTheta < -Math.PI) dTheta += Math.PI * 2;
+  activeTween = {
+    fromPos: camera.position.clone(),
+    toPos: position.clone(),
+    fromTarget,
+    toTarget: target.clone(),
+    start: performance.now(),
+    duration,
+    arc: {
+      r0: s0.radius, r1: s1.radius,
+      phi0: s0.phi, phi1: s1.phi,
+      th0: s0.theta, th1: s0.theta + dTheta,
+    },
+  };
+}
+
 function flyTo(position, target, duration = 750) {
   activeTween = {
     fromPos: camera.position.clone(),
@@ -1686,26 +1809,6 @@ function initUI() {
     ['btn-led-bath', 'led', 'bath'],
     ['btn-led-wc', 'led', 'wc'],
   ];
-  const TRACK_ROWS = [
-    ['living', 'Гостиная'],
-    ['kids', 'Детская'],
-    ['corridor', 'Коридор'],
-    ['kitchen', 'Кухня'],
-  ];
-  for (const [room, label] of TRACK_ROWS) {
-    const input = document.getElementById('tp-' + room);
-    const out = document.getElementById('tpv-' + room);
-    if (!input) continue;
-    input.addEventListener('input', () => {
-      setTrackIntensity(room, input.value);
-      if (out) out.textContent = input.value;
-    });
-    input.addEventListener('change', () => {
-      console.log('[track]', label, Number(input.value));
-      showHint('Треки ' + label + ': яркость ' + input.value);
-    });
-  }
-
   for (const [id, kind, room] of LIGHT_BUTTONS) {
     const btn = document.getElementById(id);
     if (!btn) continue;
@@ -1778,8 +1881,6 @@ function initUI() {
     lighting: () => lightingMode,
     lightState,
     setLight,
-    setTrackIntensity,
-    trackIntensity,
     trackFixtures,
     moveFixture: (room, i, x, z) => {
       if (!pendingMove) startFixtureMove(room, i);
@@ -1906,8 +2007,18 @@ function render() {
   if (activeTween) {
     const t = Math.min(1, (performance.now() - activeTween.start) / activeTween.duration);
     const k = easeInOut(t);
-    camera.position.lerpVectors(activeTween.fromPos, activeTween.toPos, k);
     controls.target.lerpVectors(activeTween.fromTarget, activeTween.toTarget, k);
+    if (activeTween.arc) {
+      const a = activeTween.arc;
+      const sph = new THREE.Spherical(
+        a.r0 + (a.r1 - a.r0) * k,
+        a.phi0 + (a.phi1 - a.phi0) * k,
+        a.th0 + (a.th1 - a.th0) * k
+      );
+      camera.position.setFromSpherical(sph).add(controls.target);
+    } else {
+      camera.position.lerpVectors(activeTween.fromPos, activeTween.toPos, k);
+    }
     if (t >= 1) activeTween = null;
   }
 
