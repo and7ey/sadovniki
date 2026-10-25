@@ -1722,14 +1722,16 @@ function restoreView() {
 }
 
 function toggleRoomAt(clientX, clientY) {
+  // пока комната изолирована, любой двойной клик возвращает общий вид:
+  // обрезанная геометрия соседних комнат всё ещё ловит лучи
+  if (isolatedRoom) {
+    restoreView();
+    return;
+  }
   const hit = pickAt(clientX, clientY);
   if (!hit) return;
   const id = roomUnder(hit.point);
   if (!id) return;
-  if (isolatedRoom === id) {
-    restoreView();
-    return;
-  }
   if (!isolatedRoom) {
     savedView = { pos: camera.position.clone(), target: controls.target.clone() };
   }
