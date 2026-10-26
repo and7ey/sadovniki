@@ -1672,7 +1672,14 @@ function setupSelection() {
  *  Double click a room: isolate it, double click again to come back
  * ------------------------------------------------------------------ */
 const ROOMS = {
-  kids: { label: 'детская', x: [-2.95, 1.15], z: [-2.98, 0.72], y: [-0.05, 3.0] },
+  kids:     { label: 'детская',   x: [-2.95, 1.15],  z: [-2.98, 0.72],  y: [-0.05, 3.0] },
+  living:   { label: 'гостиная',  x: [1.27, 7.28],   z: [-2.98, 0.51],  y: [-0.05, 3.0] },
+  bedroom:  { label: 'спальня',   x: [2.39, 7.28],   z: [0.72, 4.53],   y: [-0.05, 3.0] },
+  kitchen:  { label: 'кухня',     x: [-7.15, -3.19], z: [-2.98, 0.19],  y: [-0.05, 3.0] },
+  bath:     { label: 'ванная',    x: [-7.13, -4.44], z: [0.86, 2.84],   y: [-0.05, 3.0] },
+  wc:       { label: 'санузел',   x: [-0.90, 0.20],  z: [2.08, 3.83],   y: [-0.05, 3.0] },
+  hall:     { label: 'прихожая',  x: [-3.08, -1.03], z: [2.08, 4.50],   y: [-0.05, 3.0] },
+  balcony:  { label: 'балкон',    x: [-6.60, -3.35], z: [-4.50, -3.40], y: [-0.05, 3.0] },
 };
 
 let isolatedRoom = null;
@@ -1686,22 +1693,36 @@ function roomUnder(point) {
   return null;
 }
 
-function isolateRoom(id) {
+function isolateRoom(id, view) {
   const r = ROOMS[id];
+  // чуть подрезаем габарит: так собственные стены комнаты срезаются целиком
+  // и обзор внутрь открыт с любой стороны
+  const pad = 0.09;
+  const x0 = r.x[0] + pad;
+  const x1 = r.x[1] - pad;
+  const z0 = r.z[0] + pad;
+  const z1 = r.z[1] - pad;
   renderer.clippingPlanes = [
-    new THREE.Plane(new THREE.Vector3(1, 0, 0), -r.x[0]),
-    new THREE.Plane(new THREE.Vector3(-1, 0, 0), r.x[1]),
-    new THREE.Plane(new THREE.Vector3(0, 0, 1), -r.z[0]),
-    new THREE.Plane(new THREE.Vector3(0, 0, -1), r.z[1]),
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), -x0),
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), x1),
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), -z0),
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), z1),
     new THREE.Plane(new THREE.Vector3(0, 1, 0), -r.y[0]),
     new THREE.Plane(new THREE.Vector3(0, -1, 0), r.y[1]),
   ];
   isolatedRoom = id;
 
-  const cx = (r.x[0] + r.x[1]) / 2;
-  const cz = (r.z[0] + r.z[1]) / 2;
+  if (view) {
+    flyToArc(view.pos, view.target, 1100);
+    showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
+    console.log('[room] isolate', id, 'saved view');
+    return;
+  }
+
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
   const target = new THREE.Vector3(cx, 1.15, cz);
-  const size = Math.max(r.x[1] - r.x[0], r.z[1] - r.z[0]);
+  const size = Math.max(x1 - x0, z1 - z0);
   const vFov = THREE.MathUtils.degToRad(camera.fov);
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
   const dist = (size * 0.62) / Math.tan(Math.min(vFov, hFov) / 2) + 0.8;
@@ -1709,6 +1730,18 @@ function isolateRoom(id) {
   flyToArc(target.clone().addScaledVector(dir, dist), target, 1100);
   showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
   console.log('[room] isolate', id, 'dist', dist.toFixed(1));
+}
+
+function logCamera() {
+  const p = camera.position;
+  const t = controls.target;
+  const f = (v) => +v.toFixed(2);
+  console.log('[camera]', 'pos', f(p.x), f(p.y), f(p.z),
+    'target', f(t.x), f(t.y), f(t.z),
+    'room', isolatedRoom || '-');
+  showHint('Вид: pos ' + f(p.x) + ', ' + f(p.y) + ', ' + f(p.z) +
+    ' / target ' + f(t.x) + ', ' + f(t.y) + ', ' + f(t.z));
+  return { pos: [f(p.x), f(p.y), f(p.z)], target: [f(t.x), f(t.y), f(t.z)], room: isolatedRoom };
 }
 
 function restoreView() {
@@ -1858,6 +1891,7 @@ function initUI() {
     if (e.key === '3') btnWalls.click();
     if (e.key === '4') btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
+    if (e.key === 'c' || e.key === 'C' || e.key === 'с' || e.key === 'С') logCamera();
   });
 
   setTimeout(() => hint.classList.add('fade'), 9000);
