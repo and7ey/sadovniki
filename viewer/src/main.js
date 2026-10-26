@@ -1422,9 +1422,8 @@ loader.load(
     fitRadius = modelSize.length() * 0.5;
     viewDist = idealDistance();
 
-    controls.target.copy(homeTarget);
-    const isoDir = new THREE.Vector3(0.72, 1.02, 0.95).normalize();
-    camera.position.copy(homeTarget).addScaledVector(isoDir, viewDist);
+    controls.target.fromArray(DEFAULT_VIEW.target);
+    camera.position.fromArray(DEFAULT_VIEW.pos);
     controls.minDistance = 5;
     controls.maxDistance = viewDist * 1.9;
     controls.update();
@@ -1671,15 +1670,49 @@ function setupSelection() {
 /* ------------------------------------------------------------------ *
  *  Double click a room: isolate it, double click again to come back
  * ------------------------------------------------------------------ */
+const DEFAULT_VIEW = { pos: [1.48, 20.56, -10.1], target: [-0.26, 0.78, 0.55] };
+
 const ROOMS = {
-  kids:     { label: 'детская',   x: [-2.95, 1.15],  z: [-2.98, 0.72],  y: [-0.05, 3.0] },
-  living:   { label: 'гостиная',  x: [1.27, 7.28],   z: [-2.98, 0.51],  y: [-0.05, 3.0] },
-  bedroom:  { label: 'спальня',   x: [2.39, 7.28],   z: [0.72, 4.53],   y: [-0.05, 3.0] },
-  kitchen:  { label: 'кухня',     x: [-7.15, -3.19], z: [-2.98, 0.19],  y: [-0.05, 3.0] },
-  bath:     { label: 'ванная',    x: [-7.13, -4.44], z: [0.86, 2.84],   y: [-0.05, 3.0] },
-  wc:       { label: 'санузел',   x: [-0.90, 0.20],  z: [2.08, 3.83],   y: [-0.05, 3.0] },
-  hall:     { label: 'прихожая',  x: [-3.08, -1.03], z: [2.08, 4.50],   y: [-0.05, 3.0] },
-  balcony:  { label: 'балкон',    x: [-6.60, -3.35], z: [-4.50, -3.40], y: [-0.05, 3.0] },
+  kids: {
+    label: 'детская',
+    x: [-2.95, 1.15], z: [-2.98, 0.72], y: [-0.05, 3.0],
+    view: { pos: [-11.22, 6.69, 1.4], target: [-0.9, 1.15, -1.13] },
+  },
+  living: {
+    label: 'гостиная',
+    x: [1.27, 7.28], z: [-2.98, 0.51], y: [-0.05, 3.0],
+    view: { pos: [-6.1, 5.75, 4.29], target: [4.28, 1.15, -1.24] },
+  },
+  bedroom: {
+    label: 'спальня',
+    x: [2.39, 7.28], z: [0.72, 4.53], y: [-0.05, 3.0],
+    view: { pos: [-2.95, 6.39, -4.5], target: [4.83, 1.15, 2.62] },
+  },
+  kitchen: {
+    label: 'кухня',
+    x: [-7.15, -3.19], z: [-2.98, 0.19], y: [-0.05, 3.0],
+    view: { pos: [3.94, 4.9, 2.29], target: [-5.28, 1.35, -1.45] },
+  },
+  bath: {
+    label: 'ванная',
+    x: [-7.13, -4.44], z: [0.86, 2.84], y: [-0.05, 3.0],
+    view: { pos: [0.87, 7.03, 0.92], target: [-5.94, 1.33, 1.83] },
+  },
+  wc: {
+    label: 'санузел',
+    x: [-0.90, 0.20], z: [2.08, 3.83], y: [-0.05, 3.0],
+    view: { pos: [2.36, 2.84, -0.82], target: [-0.47, 0.67, 2.67] },
+  },
+  hall: {
+    label: 'прихожая',
+    x: [-3.08, -1.03], z: [2.08, 4.50], y: [-0.05, 3.0],
+    view: { pos: [1.16, 3.71, 10.78], target: [-2.08, 1.42, 3.23] },
+  },
+  balcony: {
+    label: 'балкон',
+    x: [-6.60, -3.35], z: [-4.50, -3.40], y: [-0.05, 3.0],
+    view: { pos: [-4.8, 4.4, -8.6], target: [-4.9, 1.2, -3.95] },
+  },
 };
 
 let isolatedRoom = null;
@@ -1693,43 +1726,62 @@ function roomUnder(point) {
   return null;
 }
 
-function isolateRoom(id, view) {
-  const r = ROOMS[id];
-  // чуть подрезаем габарит: так собственные стены комнаты срезаются целиком
-  // и обзор внутрь открыт с любой стороны
-  const pad = 0.09;
-  const x0 = r.x[0] + pad;
-  const x1 = r.x[1] - pad;
-  const z0 = r.z[0] + pad;
-  const z1 = r.z[1] - pad;
-  renderer.clippingPlanes = [
-    new THREE.Plane(new THREE.Vector3(1, 0, 0), -x0),
-    new THREE.Plane(new THREE.Vector3(-1, 0, 0), x1),
-    new THREE.Plane(new THREE.Vector3(0, 0, 1), -z0),
-    new THREE.Plane(new THREE.Vector3(0, 0, -1), z1),
-    new THREE.Plane(new THREE.Vector3(0, 1, 0), -r.y[0]),
-    new THREE.Plane(new THREE.Vector3(0, -1, 0), r.y[1]),
-  ];
-  isolatedRoom = id;
-
-  if (view) {
-    flyToArc(view.pos, view.target, 1100);
-    showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
-    console.log('[room] isolate', id, 'saved view');
-    return;
-  }
-
-  const cx = (x0 + x1) / 2;
-  const cz = (z0 + z1) / 2;
+function autoView(r) {
+  const cx = (r.x[0] + r.x[1]) / 2;
+  const cz = (r.z[0] + r.z[1]) / 2;
   const target = new THREE.Vector3(cx, 1.15, cz);
-  const size = Math.max(x1 - x0, z1 - z0);
+  const size = Math.max(r.x[1] - r.x[0], r.z[1] - r.z[0]);
   const vFov = THREE.MathUtils.degToRad(camera.fov);
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
   const dist = (size * 0.62) / Math.tan(Math.min(vFov, hFov) / 2) + 0.8;
   const dir = new THREE.Vector3(0.62, 0.7, 0.95).normalize();
-  flyToArc(target.clone().addScaledVector(dir, dist), target, 1100);
+  return { pos: target.clone().addScaledVector(dir, dist).toArray(), target: target.toArray() };
+}
+
+function isolateRoom(id) {
+  const r = ROOMS[id];
+  const v = r.view || autoView(r);
+  const cam = new THREE.Vector3().fromArray(v.pos);
+  const tgt = new THREE.Vector3().fromArray(v.target);
+  const dx = tgt.x - cam.x;
+  const dz = tgt.z - cam.z;
+  const e = 0.24; // держим дальнюю стену целиком
+
+  const planes = [];
+  const keep = (nx, nz, c) => planes.push(new THREE.Plane(new THREE.Vector3(nx, 0, nz), c));
+
+  // ближнюю к камере стену срезаем, дальнюю оставляем
+  if (dx > 0.35) {
+    keep(1, 0, -r.x[0]);
+    keep(-1, 0, r.x[1] + e);
+  } else if (dx < -0.35) {
+    keep(-1, 0, r.x[1]);
+    keep(1, 0, -(r.x[0] - e));
+  } else {
+    keep(1, 0, -(r.x[0] - e));
+    keep(-1, 0, r.x[1] + e);
+  }
+
+  if (dz > 0.35) {
+    keep(0, 1, -r.z[0]);
+    keep(0, -1, r.z[1] + e);
+  } else if (dz < -0.35) {
+    keep(0, -1, r.z[1]);
+    keep(0, 1, -(r.z[0] - e));
+  } else {
+    keep(0, 1, -(r.z[0] - e));
+    keep(0, -1, r.z[1] + e);
+  }
+
+  planes.push(new THREE.Plane(new THREE.Vector3(0, 1, 0), -r.y[0]));
+  planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), r.y[1]));
+
+  renderer.clippingPlanes = planes;
+  isolatedRoom = id;
+
+  flyToArc(cam, tgt, 1100);
   showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
-  console.log('[room] isolate', id, 'dist', dist.toFixed(1));
+  console.log('[room] isolate', id, 'view', v.pos.join(', '), '->', v.target.join(', '));
 }
 
 function logCamera() {
