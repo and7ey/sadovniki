@@ -1440,6 +1440,7 @@ loader.load(
     buildLightPools();
     buildTracks();
     buildCeiling();
+    setupDevices();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1627,6 +1628,11 @@ function setupSelection() {
     down = null;
     if (moved > 6 || elapsed > 700) return; // it was a drag, not a click
     const hit = pickAt(e.clientX, e.clientY);
+    const dev = hit ? deviceAt(hit.object) : null;
+    if (dev) {
+      toggleDevice(dev);
+      return;
+    }
     const fixture = hit ? fixtureAt(hit.object) : null;
     if (fixture) {
       startFixtureMove(fixture.room, fixture.index);
@@ -1667,6 +1673,227 @@ function setupSelection() {
   });
 }
 
+
+/* ------------------------------------------------------------------ *
+ *  Кондиционеры и телевизоры: клик включает/выключает, с анимацией
+ * ------------------------------------------------------------------ */
+const AC_RE = /cond|split|daikin|mitsubishi|ballu|haier|gree|hisense|electrolux|panasonic|кондиц|сплит/i;
+const TV_RE = /sony[_ ]?kd/i;
+
+const devices = [];          // { mesh, kind, on, overlay, mat, baseTex }
+const deviceMats = new Set();
+
+function softAirTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(0.35, 'rgba(210,235,255,0.35)');
+  grad.addColorStop(1, 'rgba(180,220,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 128);
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * 64;
+    g.strokeStyle = 'rgba(255,255,255,' + (0.05 + Math.random() * 0.12).toFixed(2) + ')';
+    g.lineWidth = 1 + Math.random() * 2;
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x + (Math.random() - 0.5) * 10, 128);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function tvTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 72;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 128, 72);
+  grad.addColorStop(0, '#0d2a4a');
+  grad.addColorStop(0.4, '#2f6fa8');
+  grad.addColorStop(0.7, '#8b5cf6');
+  grad.addColorStop(1, '#0f172a');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 72);
+  for (let i = 0; i < 5; i++) {
+    g.fillStyle = 'rgba(255,255,255,' + (0.04 + Math.random() * 0.05).toFixed(2) + ')';
+    g.fillRect(Math.random() * 128, Math.random() * 72, 30 + Math.random() * 60, 6 + Math.random() * 16);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+const AIR_TEX = softAirTexture();
+const TV_TEX = tvTexture();
+
+function openSide(box, mesh) {
+  // куда смотрит прибор: ищем самую свободную сторону по горизонтали
+  const c = box.getCenter(new THREE.Vector3());
+  const ray = new THREE.Raycaster();
+  const dirs = [
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+  ];
+  let best = dirs[0];
+  let bestDist = -1;
+  for (const d of dirs) {
+    ray.set(c.clone().addScaledVector(d, 0.02), d);
+    ray.far = 6;
+    const hits = ray.intersectObject(apartment, true).filter((h) =>
+      h.object !== mesh && h.object.isMesh && !devices.some((dv) => dv.mesh === h.object));
+    const dist = hits.length ? hits[0].distance : 6;
+    if (dist > bestDist) { bestDist = dist; best = d; }
+  }
+  return best.clone();
+}
+
+function registerDevice(mesh, kind) {
+  if (!mesh || !mesh.geometry) return;
+  if (devices.some((d) => d.mesh === mesh)) return;
+  const box = new THREE.Box3().setFromObject(mesh);
+  const size = box.getSize(new THREE.Vector3());
+  if (size.length() < 0.2) return;
+
+  const dev = { mesh, kind, on: false, overlay: null, mat: null, dir: openSide(box, mesh) };
+
+  if (kind === 'tv') {
+    // экран: плоская панель чуть впереди полотна
+    const thinZ = size.z <= size.x && size.z <= size.y;
+    const w = thinZ ? size.x : size.z;
+    const h = size.y;
+    const geo = new THREE.PlaneGeometry(w * 0.94, h * 0.92);
+    const mat = new THREE.MeshBasicMaterial({
+      map: TV_TEX.clone(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    mat.name = 'Apt_tv_screen';
+    mat.map.needsUpdate = true;
+    const plane = new THREE.Mesh(geo, mat);
+    plane.renderOrder = 4;
+    const c = box.getCenter(new THREE.Vector3());
+    if (thinZ) {
+      plane.position.set(c.x, c.y, dev.dir.z >= 0 ? box.max.z + 0.004 : box.min.z - 0.004);
+      if (dev.dir.z < 0) plane.rotation.y = Math.PI;
+    } else {
+      plane.position.set(dev.dir.x >= 0 ? box.max.x + 0.004 : box.min.x - 0.004, c.y, c.z);
+      plane.rotation.y = dev.dir.x >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    }
+    plane.visible = false;
+    plane.raycast = () => {};
+    scene.add(plane);
+    dev.overlay = plane;
+    dev.mat = mat;
+    dev.baseTex = mat.map;
+    dev.texSize = thinZ ? w : w;
+  } else {
+    // кондиционер: облако воздуха из нижней части корпуса
+    const c = box.getCenter(new THREE.Vector3());
+    const geo = new THREE.ConeGeometry(Math.max(0.35, size.length() * 0.35), 1.2, 18, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      map: AIR_TEX.clone(),
+      color: 0xcfe8ff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+    mat.name = 'Apt_ac_air';
+    const air = new THREE.Mesh(geo, mat);
+    air.position.set(c.x + dev.dir.x * 0.25, box.min.y - 0.5, c.z + dev.dir.z * 0.25);
+    air.rotation.x = Math.PI; // раструбом вниз
+    air.rotation.z = dev.dir.x * 0.25;
+    air.renderOrder = 3;
+    air.visible = false;
+    air.raycast = () => {};
+    scene.add(air);
+    dev.overlay = air;
+    dev.mat = mat;
+  }
+
+  mesh.userData.device = dev;
+  devices.push(dev);
+  console.log('[device]', kind, mesh.name, 'dir', dev.dir.toArray().map((v) => +v.toFixed(1)).join(','));
+  return dev;
+}
+
+function looksLikeAc(mesh) {
+  if (!mesh.isMesh) return false;
+  if (AC_RE.test(mesh.name)) return true;
+  const box = new THREE.Box3().setFromObject(mesh);
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  if (c.y < 1.9 || c.y > 2.9) return false;
+  const alongWall = (s) => (s.x > 0.5 && s.x < 1.5 && s.z < 0.4) || (s.z > 0.5 && s.z < 1.5 && s.x < 0.4);
+  if (!alongWall(size)) return false;
+  if (size.y < 0.15 || size.y > 0.45) return false;
+  return true;
+}
+
+function setupDevices() {
+  const seen = [];
+  apartment.traverse((o) => {
+    if (!o.isMesh) return;
+    if (TV_RE.test(o.name)) {
+      const tb = new THREE.Box3().setFromObject(o);
+      const tc = tb.getCenter(new THREE.Vector3());
+      if (seen.some((p) => p.distanceTo(tc) < 0.3)) return;
+      seen.push(tc);
+      registerDevice(o, 'tv');
+      return;
+    }
+    if (!looksLikeAc(o)) return;
+    // соседние части одного корпуса регистрируем один раз
+    const b = new THREE.Box3().setFromObject(o);
+    const c = b.getCenter(new THREE.Vector3());
+    if (seen.some((p) => p.distanceTo(c) < 0.45)) return;
+    seen.push(c);
+    registerDevice(o, 'ac');
+  });
+  console.log('[device] total', devices.length,
+    devices.map((d) => d.kind + ':' + d.mesh.name).join(' | '));
+}
+
+function toggleDevice(dev) {
+  if (!dev) return false;
+  dev.on = !dev.on;
+  if (dev.overlay) dev.overlay.visible = dev.on;
+  if (dev.mat) dev.mat.opacity = dev.on ? (dev.kind === 'tv' ? 0.95 : 0.35) : 0;
+  console.log('[device]', dev.kind, dev.mesh.name, dev.on ? 'ON' : 'OFF');
+  return dev.on;
+}
+
+function deviceAt(object) {
+  let o = object;
+  while (o) {
+    if (o.userData && o.userData.device) return o.userData.device;
+    o = o.parent;
+  }
+  return null;
+}
+
+function updateDevices(t) {
+  for (const d of devices) {
+    if (!d.on || !d.mat || !d.mat.map) continue;
+    if (d.kind === 'ac') {
+      d.mat.map.offset.y = (t * 0.55) % 1;
+      d.mat.opacity = 0.22 + 0.1 * Math.sin(t * 2.1);
+      if (d.overlay) d.overlay.rotation.y = Math.sin(t * 0.9) * 0.12;
+    } else {
+      d.mat.map.offset.x = (t * 0.06) % 1;
+      d.mat.opacity = 0.9 + 0.08 * Math.sin(t * 5.0);
+    }
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  Double click a room: isolate it, double click again to come back
  * ------------------------------------------------------------------ */
@@ -1675,17 +1902,17 @@ const DEFAULT_VIEW = { pos: [1.48, 20.56, -10.1], target: [-0.26, 0.78, 0.55] };
 const ROOMS = {
   kids: {
     label: 'детская',
-    x: [-2.95, 1.15], z: [-2.98, 0.72], y: [-0.05, 3.0],
+    x: [-2.95, 1.15], z: [-2.98, 0.84], y: [-0.05, 3.0],
     view: { pos: [-11.22, 6.69, 1.4], target: [-0.9, 1.15, -1.13] },
   },
   living: {
     label: 'гостиная',
-    x: [1.27, 7.28], z: [-2.98, 0.51], y: [-0.05, 3.0],
+    x: [1.27, 7.28], z: [-2.98, 0.72], y: [-0.05, 3.0],
     view: { pos: [-6.1, 5.75, 4.29], target: [4.28, 1.15, -1.24] },
   },
   bedroom: {
     label: 'спальня',
-    x: [2.39, 7.28], z: [0.72, 4.53], y: [-0.05, 3.0],
+    x: [2.49, 7.28], z: [0.90, 4.53], y: [-0.05, 3.0],
     view: { pos: [-2.95, 6.39, -4.5], target: [4.83, 1.15, 2.62] },
   },
   kitchen: {
@@ -1695,7 +1922,7 @@ const ROOMS = {
   },
   bath: {
     label: 'ванная',
-    x: [-7.13, -4.44], z: [0.86, 2.84], y: [-0.05, 3.0],
+    x: [-7.13, -4.47], z: [0.86, 2.84], y: [-0.05, 3.0],
     view: { pos: [0.87, 7.03, 0.92], target: [-5.94, 1.33, 1.83] },
   },
   wc: {
@@ -1711,7 +1938,7 @@ const ROOMS = {
   balcony: {
     label: 'балкон',
     x: [-6.60, -3.35], z: [-4.50, -3.40], y: [-0.05, 3.0],
-    view: { pos: [-4.8, 4.4, -8.6], target: [-4.9, 1.2, -3.95] },
+    view: { pos: [-1.62, 3.68, -11.67], target: [-4.94, 1.62, -3.86] },
   },
 };
 
@@ -1745,17 +1972,18 @@ function isolateRoom(id) {
   const tgt = new THREE.Vector3().fromArray(v.target);
   const dx = tgt.x - cam.x;
   const dz = tgt.z - cam.z;
-  const e = 0.24; // держим дальнюю стену целиком
+  const e = 0.24;  // дальнюю стену держим целиком
+  const cut = 0.02; // ближнюю срезаем на 2 см внутрь: иначе её грань остаётся
 
   const planes = [];
   const keep = (nx, nz, c) => planes.push(new THREE.Plane(new THREE.Vector3(nx, 0, nz), c));
 
   // ближнюю к камере стену срезаем, дальнюю оставляем
   if (dx > 0.35) {
-    keep(1, 0, -r.x[0]);
+    keep(1, 0, -(r.x[0] + cut));
     keep(-1, 0, r.x[1] + e);
   } else if (dx < -0.35) {
-    keep(-1, 0, r.x[1]);
+    keep(-1, 0, r.x[1] - cut);
     keep(1, 0, -(r.x[0] - e));
   } else {
     keep(1, 0, -(r.x[0] - e));
@@ -1763,10 +1991,10 @@ function isolateRoom(id) {
   }
 
   if (dz > 0.35) {
-    keep(0, 1, -r.z[0]);
+    keep(0, 1, -(r.z[0] + cut));
     keep(0, -1, r.z[1] + e);
   } else if (dz < -0.35) {
-    keep(0, -1, r.z[1]);
+    keep(0, -1, r.z[1] - cut);
     keep(0, 1, -(r.z[0] - e));
   } else {
     keep(0, 1, -(r.z[0] - e));
@@ -2091,6 +2319,8 @@ function easeInOut(t) {
 function render() {
   requestAnimationFrame(render);
   const dt = clock.getDelta();
+
+  updateDevices(performance.now() / 1000);
 
   if (activeTween) {
     const t = Math.min(1, (performance.now() - activeTween.start) / activeTween.duration);
