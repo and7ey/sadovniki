@@ -1682,6 +1682,11 @@ const AC_RE = /^pan_(body|front|back)\d*$/i;
 const TV_RE = /^sony[_ ]kd-\d{3}$/i;
 
 const devices = [];          // { mesh, kind, on, overlay, mat, baseTex }
+let deviceClock = 0;
+const AIR_STREAKS = 54;
+const AIR_REACH = 2.1;
+const AIR_FLOOR = 0.03;
+const AIR_COLOR = new THREE.Color(0x9fd4ff);
 const deviceMats = new Set();
 
 function softAirTexture() {
@@ -1733,29 +1738,47 @@ function tvTexture() {
 const AIR_TEX = softAirTexture();
 const TV_TEX = tvTexture();
 
-function openSide(box, mesh, awayFromWall) {
-  // куда смотрит прибор: ищем самую свободную сторону по горизонтали
+function openSide(box, mesh) {
+  // прибор — плоская панель на стене: сторона, куда он «смотрит», — та, где
+  // находится комната. Так надёжнее, чем лучи: у телевизора за стеной соседняя
+  // комната тоже «свободна»
   const c = box.getCenter(new THREE.Vector3());
-  const ray = new THREE.Raycaster();
-  const dirs = [
-    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
-    new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
-  ];
-  let best = dirs[0];
-  let bestDist = -1;
-  let wallSide = dirs[0];
-  let wallDist = 99;
-  for (const d of dirs) {
-    ray.set(c.clone().addScaledVector(d, 0.02), d);
-    ray.far = 6;
-    const hits = ray.intersectObject(apartment, true).filter((h) =>
-      h.object !== mesh && h.object.isMesh && !devices.some((dv) => dv.mesh === h.object));
-    const dist = hits.length ? hits[0].distance : 6;
-    if (dist > bestDist) { bestDist = dist; best = d; }
-    if (dist < wallDist) { wallDist = dist; wallSide = d; }
+  const size = box.getSize(new THREE.Vector3());
+  const dims = [size.x, size.y, size.z];
+  const thin = dims.indexOf(Math.min(dims[0], dims[1], dims[2]));
+
+  let best = null;
+  let bestDist = Infinity;
+  for (const r of Object.values(ROOMS)) {
+    if (c.x < r.x[0] - 0.12 || c.x > r.x[1] + 0.12) continue;
+    if (c.z < r.z[0] - 0.12 || c.z > r.z[1] + 0.12) continue;
+    const cx = (r.x[0] + r.x[1]) / 2;
+    const cz = (r.z[0] + r.z[1]) / 2;
+    const d = Math.hypot(c.x - cx, c.z - cz);
+    if (d < bestDist) { bestDist = d; best = { cx, cz }; }
   }
-  // кондиционер висит на стене — дуем от неё, а не вдоль
-  return (awayFromWall ? wallSide.clone().negate() : best.clone());
+
+  if (best) {
+    const vx = best.cx - c.x;
+    const vz = best.cz - c.z;
+    if (thin === 0) return new THREE.Vector3(Math.sign(vx) || 1, 0, 0);
+    if (thin === 2) return new THREE.Vector3(0, 0, Math.sign(vz) || 1);
+    return new THREE.Vector3(Math.sign(vx) || 1, 0, 0);
+  }
+
+  // запасной путь: самая свободная сторона по тонкой оси
+  const axis = new THREE.Vector3(thin === 0 ? 1 : 0, thin === 1 ? 1 : 0, thin === 2 ? 1 : 0);
+  const ray = new THREE.Raycaster();
+  const dists = [];
+  for (const dir of [axis, axis.clone().negate()]) {
+    ray.set(c.clone().addScaledVector(dir, 0.03), dir);
+    ray.far = 8;
+    const hits = ray.intersectObject(apartment, true).filter((h) =>
+      h.object !== mesh && h.object.isMesh && h.distance > 0.05 &&
+      !devices.some((dv) => dv.mesh === h.object));
+    dists.push(hits.length ? hits[0].distance : 8);
+  }
+  return dists[0] >= dists[1] ? axis : axis.clone().negate();
 }
 
 function registerDevice(mesh, kind) {
@@ -1800,31 +1823,44 @@ function registerDevice(mesh, kind) {
     dev.baseTex = mat.map;
     dev.texSize = thinZ ? w : w;
   } else {
-    // кондиционер: облако воздуха из нижней части корпуса
+    // кондиционер: поток из коротких аддитивных струек (как в house-control)
     const c = box.getCenter(new THREE.Vector3());
-    const geo = new THREE.ConeGeometry(Math.max(0.26, size.length() * 0.26), 1.05, 20, 1, true);
-    const mat = new THREE.MeshBasicMaterial({
-      map: AIR_TEX.clone(),
-      color: 0xdff0ff,
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(AIR_STREAKS * 6);
+    const col = new Float32Array(AIR_STREAKS * 6);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+    const mat = new THREE.LineBasicMaterial({
+      vertexColors: true,
       transparent: true,
-      opacity: 0,
       depthWrite: false,
-      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       toneMapped: false,
     });
     mat.name = 'Apt_ac_air';
-    const air = new THREE.Mesh(geo, mat);
-    air.position.set(c.x + dev.dir.x * 0.34, box.min.y - 0.52, c.z + dev.dir.z * 0.34);
-    air.rotation.x = Math.PI; // раструбом вниз
-    if (dev.dir.x !== 0) air.rotation.z = dev.dir.x * 0.28;
-    else air.rotation.x += dev.dir.z * 0.28;
-    air.renderOrder = 3;
-    air.visible = false;
-    air.raycast = () => {};
-    scene.add(air);
-    dev.overlay = air;
+    const flow = new THREE.LineSegments(geo, mat);
+    flow.frustumCulled = false;
+    flow.visible = false;
+    flow.renderOrder = 3;
+    flow.raycast = () => {};
+    scene.add(flow);
+
+    dev.overlay = flow;
     dev.mat = mat;
+    dev.origin = new THREE.Vector3(
+      c.x + dev.dir.x * 0.2,
+      box.min.y + 0.02,
+      c.z + dev.dir.z * 0.2
+    );
+    dev.perp = new THREE.Vector3(-dev.dir.z, 0, dev.dir.x);
+    dev.seeds = Array.from({ length: AIR_STREAKS }, (_, i) => ({
+      phase: (i * 0.618034) % 1,
+      u: ((i * 0.381966) % 1) * 2 - 1,
+      speed: 0.8 + ((i * 0.7548) % 1) * 0.5,
+      wobble: (i * 2.399) % (Math.PI * 2),
+    }));
+    dev.power = 0;
+    dev.clock = 0;
   }
 
   mesh.userData.device = dev;
@@ -1864,8 +1900,8 @@ function setupDevices() {
 function toggleDevice(dev) {
   if (!dev) return false;
   dev.on = !dev.on;
+  if (dev.mat && dev.kind === 'tv') dev.mat.opacity = dev.on ? 0.95 : 0;
   if (dev.overlay) dev.overlay.visible = dev.on;
-  if (dev.mat) dev.mat.opacity = dev.on ? (dev.kind === 'tv' ? 0.95 : 0.35) : 0;
   console.log('[device]', dev.kind, dev.mesh.name, dev.on ? 'ON' : 'OFF');
   return dev.on;
 }
@@ -1879,17 +1915,65 @@ function deviceAt(object) {
   return null;
 }
 
-function updateDevices(t) {
+function updateDevices(dt, t) {
   for (const d of devices) {
-    if (!d.on || !d.mat || !d.mat.map) continue;
-    if (d.kind === 'ac') {
-      d.mat.map.offset.y = (t * 0.55) % 1;
-      d.mat.opacity = 0.34 + 0.12 * Math.sin(t * 2.1);
-      if (d.overlay) d.overlay.rotation.y = Math.sin(t * 0.9) * 0.12;
-    } else {
+    if (d.kind === 'tv') {
+      if (!d.on || !d.mat || !d.mat.map) continue;
       d.mat.map.offset.x = (t * 0.06) % 1;
-      d.mat.opacity = 0.9 + 0.08 * Math.sin(t * 5.0);
+      d.mat.opacity = 0.9 + 0.08 * Math.sin(t * 5);
+      continue;
     }
+
+    d.power += ((d.on ? 1 : 0) - d.power) * (1 - Math.exp(-dt * 4));
+    if (d.power < 0.004) {
+      if (d.overlay) d.overlay.visible = false;
+      continue;
+    }
+    if (!d.overlay) continue;
+    d.overlay.visible = true;
+    d.clock += dt;
+
+    const geo = d.overlay.geometry;
+    const pos = geo.attributes.position.array;
+    const col = geo.attributes.color.array;
+    const o = d.origin;
+    const dir = d.dir;
+    const perp = d.perp;
+    const drop = 0.62;
+    const sinD = Math.sin(drop);
+    const cosD = Math.cos(drop);
+    const r = AIR_COLOR.r;
+    const g = AIR_COLOR.g;
+    const b = AIR_COLOR.b;
+
+    const sample = (seed, tt, arr, k) => {
+      const dist = AIR_REACH * tt;
+      let lateral = seed.u * (0.3 + 0.5 * tt) +
+        Math.sin(d.clock * 1.6 + seed.wobble + tt * 5) * 0.04 * tt;
+      let y = o.y - sinD * dist - 0.42 * tt * tt;
+      const under = Math.max(0, AIR_FLOOR - y);
+      if (under > 0) {
+        y = AIR_FLOOR;
+        lateral += under * 0.9;
+      }
+      const fwd = cosD * dist;
+      arr[k] = o.x + dir.x * fwd + perp.x * lateral;
+      arr[k + 1] = y;
+      arr[k + 2] = o.z + dir.z * fwd + perp.z * lateral;
+    };
+
+    for (let i = 0; i < AIR_STREAKS; i++) {
+      const seed = d.seeds[i];
+      const tt = (seed.phase + d.clock * 0.42 * seed.speed) % 1;
+      const tail = Math.max(0, tt - 0.09);
+      sample(seed, tt, pos, i * 6);
+      sample(seed, tail, pos, i * 6 + 3);
+      const fade = Math.pow(Math.sin(Math.PI * tt), 0.7) * d.power * 1.35;
+      col[i * 6] = r * fade; col[i * 6 + 1] = g * fade; col[i * 6 + 2] = b * fade;
+      col[i * 6 + 3] = r * fade * 0.12; col[i * 6 + 4] = g * fade * 0.12; col[i * 6 + 5] = b * fade * 0.12;
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
   }
 }
 
@@ -2325,7 +2409,9 @@ function render() {
   requestAnimationFrame(render);
   const dt = clock.getDelta();
 
-  updateDevices(performance.now() / 1000);
+  const nowMs = performance.now();
+  updateDevices(Math.min(0.1, (nowMs - (deviceClock || nowMs)) / 1000), nowMs / 1000);
+  deviceClock = nowMs;
 
   if (activeTween) {
     const t = Math.min(1, (performance.now() - activeTween.start) / activeTween.duration);
