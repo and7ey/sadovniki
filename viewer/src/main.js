@@ -1677,8 +1677,9 @@ function setupSelection() {
 /* ------------------------------------------------------------------ *
  *  Кондиционеры и телевизоры: клик включает/выключает, с анимацией
  * ------------------------------------------------------------------ */
-const AC_RE = /cond|split|daikin|mitsubishi|ballu|haier|gree|hisense|electrolux|panasonic|кондиц|сплит/i;
-const TV_RE = /sony[_ ]?kd/i;
+// внутренние блоки кондиционеров в модели — Pan_back / Pan_body / Pan_front
+const AC_RE = /^pan_(body|front|back)\d*$/i;
+const TV_RE = /^sony[_ ]kd-\d{3}$/i;
 
 const devices = [];          // { mesh, kind, on, overlay, mat, baseTex }
 const deviceMats = new Set();
@@ -1704,6 +1705,7 @@ function softAirTexture() {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
@@ -1712,10 +1714,10 @@ function tvTexture() {
   c.width = 128; c.height = 72;
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 128, 72);
-  grad.addColorStop(0, '#0d2a4a');
-  grad.addColorStop(0.4, '#2f6fa8');
-  grad.addColorStop(0.7, '#8b5cf6');
-  grad.addColorStop(1, '#0f172a');
+  grad.addColorStop(0, '#2a6fb8');
+  grad.addColorStop(0.4, '#5fa7e8');
+  grad.addColorStop(0.7, '#b98cf8');
+  grad.addColorStop(1, '#21365e');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 72);
   for (let i = 0; i < 5; i++) {
@@ -1724,13 +1726,14 @@ function tvTexture() {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
 const AIR_TEX = softAirTexture();
 const TV_TEX = tvTexture();
 
-function openSide(box, mesh) {
+function openSide(box, mesh, awayFromWall) {
   // куда смотрит прибор: ищем самую свободную сторону по горизонтали
   const c = box.getCenter(new THREE.Vector3());
   const ray = new THREE.Raycaster();
@@ -1740,6 +1743,8 @@ function openSide(box, mesh) {
   ];
   let best = dirs[0];
   let bestDist = -1;
+  let wallSide = dirs[0];
+  let wallDist = 99;
   for (const d of dirs) {
     ray.set(c.clone().addScaledVector(d, 0.02), d);
     ray.far = 6;
@@ -1747,8 +1752,10 @@ function openSide(box, mesh) {
       h.object !== mesh && h.object.isMesh && !devices.some((dv) => dv.mesh === h.object));
     const dist = hits.length ? hits[0].distance : 6;
     if (dist > bestDist) { bestDist = dist; best = d; }
+    if (dist < wallDist) { wallDist = dist; wallSide = d; }
   }
-  return best.clone();
+  // кондиционер висит на стене — дуем от неё, а не вдоль
+  return (awayFromWall ? wallSide.clone().negate() : best.clone());
 }
 
 function registerDevice(mesh, kind) {
@@ -1758,7 +1765,7 @@ function registerDevice(mesh, kind) {
   const size = box.getSize(new THREE.Vector3());
   if (size.length() < 0.2) return;
 
-  const dev = { mesh, kind, on: false, overlay: null, mat: null, dir: openSide(box, mesh) };
+  const dev = { mesh, kind, on: false, overlay: null, mat: null, dir: openSide(box, mesh, kind === 'ac') };
 
   if (kind === 'tv') {
     // экран: плоская панель чуть впереди полотна
@@ -1795,10 +1802,10 @@ function registerDevice(mesh, kind) {
   } else {
     // кондиционер: облако воздуха из нижней части корпуса
     const c = box.getCenter(new THREE.Vector3());
-    const geo = new THREE.ConeGeometry(Math.max(0.35, size.length() * 0.35), 1.2, 18, 1, true);
+    const geo = new THREE.ConeGeometry(Math.max(0.26, size.length() * 0.26), 1.05, 20, 1, true);
     const mat = new THREE.MeshBasicMaterial({
       map: AIR_TEX.clone(),
-      color: 0xcfe8ff,
+      color: 0xdff0ff,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -1808,9 +1815,10 @@ function registerDevice(mesh, kind) {
     });
     mat.name = 'Apt_ac_air';
     const air = new THREE.Mesh(geo, mat);
-    air.position.set(c.x + dev.dir.x * 0.25, box.min.y - 0.5, c.z + dev.dir.z * 0.25);
+    air.position.set(c.x + dev.dir.x * 0.34, box.min.y - 0.52, c.z + dev.dir.z * 0.34);
     air.rotation.x = Math.PI; // раструбом вниз
-    air.rotation.z = dev.dir.x * 0.25;
+    if (dev.dir.x !== 0) air.rotation.z = dev.dir.x * 0.28;
+    else air.rotation.x += dev.dir.z * 0.28;
     air.renderOrder = 3;
     air.visible = false;
     air.raycast = () => {};
@@ -1826,16 +1834,7 @@ function registerDevice(mesh, kind) {
 }
 
 function looksLikeAc(mesh) {
-  if (!mesh.isMesh) return false;
-  if (AC_RE.test(mesh.name)) return true;
-  const box = new THREE.Box3().setFromObject(mesh);
-  const size = box.getSize(new THREE.Vector3());
-  const c = box.getCenter(new THREE.Vector3());
-  if (c.y < 1.9 || c.y > 2.9) return false;
-  const alongWall = (s) => (s.x > 0.5 && s.x < 1.5 && s.z < 0.4) || (s.z > 0.5 && s.z < 1.5 && s.x < 0.4);
-  if (!alongWall(size)) return false;
-  if (size.y < 0.15 || size.y > 0.45) return false;
-  return true;
+  return mesh.isMesh && AC_RE.test(mesh.name);
 }
 
 function setupDevices() {
@@ -1885,7 +1884,7 @@ function updateDevices(t) {
     if (!d.on || !d.mat || !d.mat.map) continue;
     if (d.kind === 'ac') {
       d.mat.map.offset.y = (t * 0.55) % 1;
-      d.mat.opacity = 0.22 + 0.1 * Math.sin(t * 2.1);
+      d.mat.opacity = 0.34 + 0.12 * Math.sin(t * 2.1);
       if (d.overlay) d.overlay.rotation.y = Math.sin(t * 0.9) * 0.12;
     } else {
       d.mat.map.offset.x = (t * 0.06) % 1;
@@ -2203,6 +2202,12 @@ function initUI() {
       return moveFixtureTo({ x, z });
     },
     ceiling: () => scene.getObjectByName('CeilingShadow'),
+    isolateRoom,
+    restoreView,
+    isolated: () => isolatedRoom,
+    logCamera,
+    devices,
+    toggleDevice,
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
