@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Квартира — 3D</title>
+  <link rel="stylesheet" href="./src/style.css?v=14" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud">
+    <section class="weather" id="weather" data-entity="weather.home">
+      <div class="weather-icon" id="weather-icon">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.6 34h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 34Z" />
+        </svg>
+      </div>
+      <div class="weather-body">
+        <div class="weather-temp" id="weather-temp">8 °C</div>
+        <div class="weather-state" id="weather-state">Облачно</div>
+      </div>
+    </section>
+
+    <div class="controls">
+      <button id="btn-rotate" title="Автовращение">Вращение</button>
+      <span class="divider"></span>
+      <button id="btn-led-living" title="Светодиодная лента — гостиная">Лента зал</button>
+      <button id="btn-led-kids" title="Светодиодная лента — детская">Лента дет</button>
+      <button id="btn-led-kitchen" title="Светодиодная лента — кухня (стена 14 и шкафы)">Лента кух</button>
+      <button id="btn-led-hall" title="Светодиодная лента — спальня, вертикальная у зеркала">Лента спальня</button>
+      <button id="btn-track-living" title="Треки GU10 — гостиная">Треки зал</button>
+      <button id="btn-track-kids" title="Треки GU10 — детская">Треки дет</button>
+      <button id="btn-track-corridor" title="Треки GU10 — коридор">Треки кор</button>
+      <button id="btn-track-kitchen" title="Треки GU10 — кухня">Треки кух</button>
+      <button id="btn-track-bath" title="Споты GX53 3×3 — ванная">Ванная</button>
+      <button id="btn-track-wc" title="Споты — санузел">Санузел</button>
+      <button id="btn-track-balcony" title="Споты — балкон">Балкон</button>
+      <button id="btn-led-bath" title="Ленты ванной (стена 27, Line2000006704, боковые у зеркал, под тумбой)">Лента ван</button>
+      <button id="btn-led-wc" title="Ленты санузла (Box397, Box398, Стена 70)">Лента с/у</button>
+    </div>
+
+
+
+    <div id="selected" class="selected" hidden>
+      <span class="selected-label">Выбрано</span>
+      <code id="selected-id"></code>
+      <span id="selected-size" class="selected-size"></span>
+    </div>
+
+
+    <div class="side-stack">
+    <button id="btn-walls" title="Показать/скрыть стены"></button>
+    <button id="btn-light" title="Освещение: день / вечер / ночь"></button>
+    <button id="btn-view" title="Вид сверху / вернуть камеру"></button>
+    <button id="btn-home" class="home-btn" title="Вернуть общий вид квартиры" aria-label="Общий вид">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.6" />
+        <path d="M15.6 8.4 13.3 13.3 8.4 15.6 10.7 10.7Z" fill="currentColor" stroke="none" />
+        <path d="M12 2.6v1.8M12 19.6v1.8M2.6 12h1.8M19.6 12h1.8" />
+      </svg>
+    </button>
+    </div>
+
+    <div class="hint">
+      <span><b>ЛКМ</b> — вращать</span>
+      <span><b>Колесо</b> — масштаб</span>
+      <span><b>ПКМ</b> — сдвинуть</span>
+      <span><b>2×клик</b> — комната</span>
+      <span><b>C</b> — вид в консоль</span>
+    </div>
+  </div>
+
+  <div id="gl-lost" class="gl-lost" hidden>
+    <p>Не хватило памяти видеокарты для этой сцены.</p>
+    <button type="button" onclick="location.reload()">Перезагрузить</button>
+  </div>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-ring"></div>
+      <div class="loader-text">Загружаем квартиру… <span id="progress">0%</span></div>
+    </div>
+  </div>
+
+  <script>
+    // ошибки, которые рушат загрузку, показываем прямо в лоадере
+    window.addEventListener('error', (e) => {
+      const t = document.querySelector('.loader-text');
+      if (t) t.textContent = 'Ошибка: ' + (e.message || 'сбой загрузки') + ' @ ' + (e.filename || '').split('/').slice(-2).join('/') + ':' + (e.lineno || 0);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const t = document.querySelector('.loader-text');
+      const m = e.reason && e.reason.message ? e.reason.message : 'сбой загрузки';
+      if (t) t.textContent = 'Ошибка: ' + m;
+    });
+  </script>
+  <script type="module" src="./src/main.js?v=73"></script>
+</body>
+</html>
