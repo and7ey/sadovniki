@@ -2104,7 +2104,7 @@ function updateDevices(dt, t) {
  * ------------------------------------------------------------------ */
 const CURTAIN_SLIDE = [
   // северная: вплотную к Plane003, шириной до правого края окна (Window023: 2.08..3.77)
-  { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x', fit: [2.13, 3.87] },
+  { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x', fit: [1.71, 3.87] },
   // восточная: докрывает окно до следующей шторы
   { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z', fit: [-2.46, -0.70], anchor: 'max' },
 ];
@@ -2401,7 +2401,8 @@ function isolateRoom(id) {
   renderer.clippingPlanes = planes;
   isolatedRoom = id;
 
-  flyToArc(cam, tgt, 1100);
+  if (viewMode === 'top') goTopCurrent();
+  else flyToArc(cam, tgt, 1100);
   showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
   console.log('[room] isolate', id, 'view', v.pos.join(', '), '->', v.target.join(', '));
 }
@@ -2422,6 +2423,9 @@ function goHome() {
   renderer.clippingPlanes = [];
   isolatedRoom = null;
   savedView = null;
+  viewMode = 'iso';
+  viewSaved = null;
+  updateViewButton();
   flyToArc(new THREE.Vector3().fromArray(DEFAULT_VIEW.pos), new THREE.Vector3().fromArray(DEFAULT_VIEW.target), 950);
   console.log('[camera] home');
 }
@@ -2494,6 +2498,50 @@ function goIso() {
   flyTo(homeTarget.clone().addScaledVector(dir, viewDist), homeTarget);
 }
 
+let viewMode = 'iso';
+let viewSaved = null;
+
+// кадр для вида сверху: комната, если она изолирована, иначе вся квартира
+function topFrame() {
+  if (isolatedRoom) {
+    const r = ROOMS[isolatedRoom];
+    const cx = (r.x[0] + r.x[1]) / 2;
+    const cz = (r.z[0] + r.z[1]) / 2;
+    return { target: new THREE.Vector3(cx, 0.5, cz), size: Math.max(r.x[1] - r.x[0], r.z[1] - r.z[0]) };
+  }
+  return { target: new THREE.Vector3(0, 0.4, 0), size: Math.max(modelSize.x, modelSize.z) };
+}
+
+function goTopCurrent() {
+  const { target, size } = topFrame();
+  const vFov = THREE.MathUtils.degToRad(camera.fov);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const d = (size * 0.6) / Math.tan(Math.min(vFov, hFov) / 2) + 1.4;
+  // строго сверху и без закрутки: крошечный сдвиг по +z только задаёт «верх» кадра
+  flyTo(new THREE.Vector3(target.x, target.y + d, target.z + d * 0.008), target, 850);
+}
+
+function updateViewButton() {
+  const b = document.getElementById('btn-view');
+  if (!b) return;
+  b.textContent = viewMode === 'top' ? 'Изометрия' : 'Сверху';
+  b.classList.toggle('active', viewMode === 'top');
+}
+
+function toggleView() {
+  if (viewMode === 'iso') {
+    viewSaved = { pos: camera.position.clone(), target: controls.target.clone() };
+    goTopCurrent();
+    viewMode = 'top';
+  } else {
+    if (viewSaved) flyToArc(viewSaved.pos, viewSaved.target, 850);
+    else goIso();
+    viewMode = 'iso';
+    viewSaved = null;
+  }
+  updateViewButton();
+}
+
 function goTop() {
   const vFov = THREE.MathUtils.degToRad(camera.fov);
   const distH = modelSize.z / (2 * Math.tan(vFov / 2));
@@ -2503,8 +2551,7 @@ function goTop() {
 }
 
 function initUI() {
-  const btnIso = document.getElementById('btn-iso');
-  const btnTop = document.getElementById('btn-top');
+  const btnView = document.getElementById('btn-view');
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
   const btnLight = document.getElementById('btn-light');
@@ -2541,17 +2588,8 @@ function initUI() {
     });
   }
 
-  btnIso.addEventListener('click', () => {
-    goIso();
-    btnIso.classList.add('active');
-    btnTop.classList.remove('active');
-  });
-
-  btnTop.addEventListener('click', () => {
-    goTop();
-    btnTop.classList.add('active');
-    btnIso.classList.remove('active');
-  });
+  if (btnView) btnView.addEventListener('click', toggleView);
+  updateViewButton();
 
   btnWalls.addEventListener('click', () => {
     const cutaway = wallTargetOpacity > 0.5;
@@ -2573,8 +2611,7 @@ function initUI() {
   }
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === '1') btnIso.click();
-    if (e.key === '2') btnTop.click();
+    if (e.key === '1' && btnView) btnView.click();
     if (e.key === '3') btnWalls.click();
     if (e.key === '4') btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
@@ -2591,6 +2628,8 @@ function initUI() {
     controls,
     goIso,
     goTop,
+    goTopCurrent,
+    toggleView,
     renderer,
     THREE,
     apartment,

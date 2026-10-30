@@ -24,10 +24,6 @@
     </section>
 
     <div class="controls">
-      <button id="btn-iso" class="active" title="Изометрический вид">Изометрия</button>
-      <button id="btn-light" title="Дневное / ночное освещение">День</button>
-      <button id="btn-top" title="Вид сверху">Сверху</button>
-      <span class="divider"></span>
       <button id="btn-walls" title="Показать/скрыть стены">Стены</button>
       <button id="btn-rotate" title="Автовращение">Вращение</button>
       <span class="divider"></span>
@@ -55,6 +51,9 @@
     </div>
 
 
+    <div class="side-stack">
+    <button id="btn-light" title="Освещение: день / вечер / ночь">День</button>
+    <button id="btn-view" title="Вид сверху / вернуть камеру">Сверху</button>
     <button id="btn-home" class="home-btn" title="Вернуть общий вид квартиры" aria-label="Общий вид">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="8.6" />
@@ -62,6 +61,7 @@
         <path d="M12 2.6v1.8M12 19.6v1.8M2.6 12h1.8M19.6 12h1.8" />
       </svg>
     </button>
+    </div>
 
     <div class="hint">
       <span><b>ЛКМ</b> — вращать</span>
@@ -92,6 +92,6 @@
       }
     }
   </script>
-  <script type="module" src="./src/main.js?v=63"></script>
+  <script type="module" src="./src/main.js?v=64"></script>
 </body>
 </html>
