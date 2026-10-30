@@ -2106,12 +2106,12 @@ const CURTAIN_SLIDE = [
   // северная: вплотную к Plane003, шириной до правого края окна (Window023: 2.08..3.77)
   { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x', fit: [2.13, 3.87] },
   // восточная: докрывает окно до следующей шторы
-  { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z', fit: [-2.46, -0.70] },
+  { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z', fit: [-2.46, -0.70], anchor: 'max' },
 ];
 
 // статичные створки, которым меняем размер (Plane003 — вдвое уже)
 const CURTAIN_TRIM = [
-  { name: 'Plane003', axis: 'x', fit: [1.69, 2.13] },
+  { name: 'Plane003', axis: 'x', fit: [1.27, 1.71] },
 ];
 
 // обе шторы на всю ширину окна; левая опускается меньше, правая — почти до низа,
@@ -2195,11 +2195,12 @@ function setupCurtains() {
     const box = new THREE.Box3().setFromObject(mesh);
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
+    const far = def.anchor === 'max';
     const anchor = new THREE.Group();
     anchor.position.set(
-      def.axis === 'x' ? box.min.x : cx,
+      def.axis === 'x' ? (far ? box.max.x : box.min.x) : cx,
       (box.min.y + box.max.y) / 2,
-      def.axis === 'x' ? cz : box.min.z
+      def.axis === 'x' ? cz : (far ? box.max.z : box.min.z)
     );
     // группа в мировых координатах: apartment сам смещён, из-за этого штора
     // раньше «улетала» в другую комнату
