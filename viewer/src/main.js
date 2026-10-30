@@ -729,6 +729,78 @@ const EXTRA_ROOMS = {
   },
 };
 
+
+/* ------------------------------------------------------------------ *
+ *  Соответствие 3D ↔ Home Assistant
+ *  (только чтение: сущности взяты из core.entity_registry / REST API)
+ * ------------------------------------------------------------------ */
+const HA_LIGHTS = {
+  living:   { led: 'switch.light_hall_l1',             track: 'switch.light_hall_l2' },
+  kids:     { led: 'switch.light_nursery_l1',          track: 'switch.light_nursery_l2' },
+  kitchen:  { led: 'light.switch_kitchen_led',         track: 'switch.switch_kitchen_set_light_l1' },
+  bedroom:  { led: 'switch.light_bedroom' },
+  hall:     { led: 'switch.light_bedroom' },   // лента у зеркала в спальне
+  corridor: { track: 'switch.light_lobby_track' },
+  bath:     { led: 'switch.switch_bathroom_l2',        track: 'switch.switch_bathroom_l1' },
+  wc:       { led: 'switch.light_toilet_l1',           track: 'switch.light_toilet_l2' },
+  balcony:  { track: 'light.light_balcony_1' },
+};
+
+// меши приборов в модели → сущности HA
+const HA_DEVICES = {
+  'Pan_Back002': 'climate.konder_gostinaia_air_conditioner',
+  'Pan_Back': 'climate.konder_spalnia_air_conditioner',
+  'Pan_Back003': 'climate.air_conditioner_as20hpl1hra',
+  'Sony_KD-065': 'media_player.tv_tcl_65',
+  'Sony_KD-055': 'media_player.tv_tcl_32',
+};
+
+const HA_INFO = {
+  'switch.light_hall_l1': 'гостиная, реле L1',
+  'switch.light_hall_l2': 'гостиная, реле L2',
+  'switch.light_nursery_l1': 'детская, реле L1',
+  'switch.light_nursery_l2': 'детская, реле L2',
+  'light.switch_kitchen_led': 'кухня, лента',
+  'switch.switch_kitchen_set_light_l1': 'кухня, подсветка L1',
+  'switch.switch_kitchen_set_light_l2': 'кухня, подсветка L2',
+  'switch.light_bedroom': 'спальня',
+  'switch.light_lobby_track': 'прихожая, трек',
+  'switch.switch_bathroom_l1': 'ванная, лампы',
+  'switch.switch_bathroom_l2': 'ванная, лента',
+  'switch.light_toilet_l1': 'санузел, лента',
+  'switch.light_toilet_l2': 'санузел, лампы',
+  'light.light_balcony_1': 'балкон, свет 1',
+  'light.light_balcony_2': 'балкон, свет 2',
+  'climate.konder_gostinaia_air_conditioner': 'гостиная, кондиционер',
+  'climate.konder_spalnia_air_conditioner': 'спальня, кондиционер',
+  'climate.air_conditioner_as20hpl1hra': 'кухня, кондиционер',
+  'climate.thermostat_hall_1': 'гостиная, батарея северная',
+  'climate.thermostat_hall_2': 'гостиная, батарея восточная',
+  'climate.thermostat_kitchen': 'кухня, батарея',
+  'climate.thermostat_nursery': 'детская, батарея',
+  'climate.thermostat_bedroom': 'спальня, батарея',
+  'media_player.tv_tcl_65': 'гостиная, ТВ TCL 65',
+  'media_player.tv_tcl_32': 'кухня, ТВ TCL 32',
+  'light.wled_tv65': 'гостиная, подсветка телевизора',
+  'light.wled_tv32': 'кухня, подсветка телевизора',
+  'light.wled_hall': 'гостиная, WLED-Hall',
+  'light.wled_nursery_left': 'детская, WLED слева',
+  'light.wled_nursery_right': 'детская, WLED справа',
+  'cover.curtain_driver_hall': 'гостиная, лёгкая штора',
+  'cover.curtain_driver2_hall': 'гостиная, северная штора',
+  'cover.curtain_motor_hall': 'гостиная, восточная штора',
+  'cover.blinds_controller_blackout_nursery': 'детская, блэкаут',
+  'cover.blinds_controller_tulle_nursery': 'детская, тюль',
+  'cover.curtain_driver_left_nursery': 'детская, левая штора',
+  'cover.curtain_driver_right_nursery': 'детская, правая штора',
+  'cover.curtain_driver_bedroom': 'спальня, штора',
+};
+
+function haEntity(kind, room) {
+  const row = HA_LIGHTS[room];
+  return (row && row[kind]) || null;
+}
+
 const LED_INTENSITY = 4;
 const TRACK_DEFAULT = 10;
 const CEILING_Y = 3.0;
@@ -1013,7 +1085,8 @@ function buildCeiling() {
 function setLight(kind, room, on) {
   lightState[kind + cap(room)] = on;
   const used = kind === 'led' ? refreshLeds() : refreshTracks();
-  console.log('[light]', kind, room, on ? 'ON' : 'OFF', 'lamps', used);
+  const entity = haEntity(kind, room);
+  console.log('[light]', entity || (kind + ':' + room), on ? 'ON' : 'OFF', 'lamps', used);
   return on;
 }
 
@@ -1863,9 +1936,11 @@ function registerDevice(mesh, kind) {
     dev.clock = 0;
   }
 
+  dev.entity = HA_DEVICES[mesh.name] || null;
   mesh.userData.device = dev;
   devices.push(dev);
-  console.log('[device]', kind, mesh.name, 'dir', dev.dir.toArray().map((v) => +v.toFixed(1)).join(','));
+  console.log('[device]', kind, mesh.name, '->', dev.entity || '(нет в HA)', 'dir',
+    dev.dir.toArray().map((v) => +v.toFixed(1)).join(','));
   return dev;
 }
 
@@ -1902,7 +1977,7 @@ function toggleDevice(dev) {
   dev.on = !dev.on;
   if (dev.mat && dev.kind === 'tv') dev.mat.opacity = dev.on ? 0.95 : 0;
   if (dev.overlay) dev.overlay.visible = dev.on;
-  console.log('[device]', dev.kind, dev.mesh.name, dev.on ? 'ON' : 'OFF');
+  console.log('[device]', dev.entity || dev.mesh.name, dev.on ? 'ON' : 'OFF');
   return dev.on;
 }
 
@@ -2210,6 +2285,9 @@ function initUI() {
   for (const [id, kind, room] of LIGHT_BUTTONS) {
     const btn = document.getElementById(id);
     if (!btn) continue;
+    // подсказка = сущность Home Assistant
+    const entity = haEntity(kind, room);
+    if (entity) btn.title = entity + (HA_INFO[entity] ? ' — ' + HA_INFO[entity] : '');
     btn.addEventListener('click', () => {
       const on = !lightState[kind + room[0].toUpperCase() + room.slice(1)];
       setLight(kind, room, on);
@@ -2292,6 +2370,7 @@ function initUI() {
     logCamera,
     devices,
     toggleDevice,
+    ha: { lights: HA_LIGHTS, devices: HA_DEVICES, info: HA_INFO },
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
