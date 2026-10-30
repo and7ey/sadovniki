@@ -763,7 +763,7 @@ const HA_AC_PARTS = {
 };
 
 // книги и прочий мусор, который убираем из сцены на клиенте
-const REMOVE_3D = ['Object9318', 'BLADDRA_box', 'Object9319', 'Object002'];
+const REMOVE_3D = ['Object9319', 'Object002'];
 
 const HA_INFO = {
   'switch.light_hall_l1': 'гостиная, реле L1',
@@ -2107,14 +2107,16 @@ const CURTAIN_SLIDE = [
   { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z' },
 ];
 
+// обе шторы на всю ширину окна; левая опускается меньше, правая — почти до низа,
+// чтобы в закрытом виде обе были крупными и по ним легко было попасть кликом
 const CURTAIN_ROMAN = [
   {
     names: ['Plane1215', 'Plane004'], entity: 'cover.curtain_driver_left',
-    x: [-2.18, -0.79], color: 0xc4c4c4,
+    x: [-2.18, 0.60], color: 0xc4c4c4, z: -2.72, min: 0.14, max: 0.55,
   },
   {
     names: ['Plane1214', 'Plane006'], entity: 'cover.curtain_driver_right',
-    x: [-0.79, 0.60], color: 0xe6e6e6,
+    x: [-2.18, 0.60], color: 0xe6e6e6, z: -2.78, min: 0.10, max: 0.95,
   },
 ];
 const ROMAN_TOP = 2.64;
@@ -2164,7 +2166,9 @@ function setupCurtains() {
       (box.min.y + box.max.y) / 2,
       def.axis === 'x' ? cz : box.min.z
     );
-    apartment.add(anchor);
+    // группа в мировых координатах: apartment сам смещён, из-за этого штора
+    // раньше «улетала» в другую комнату
+    scene.add(anchor);
     anchor.attach(mesh);
     // в модели шторы нарисованы задёрнутыми
     const entry = {
@@ -2193,7 +2197,7 @@ function setupCurtains() {
     });
     mat.name = 'Apt_roman_blind';
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((def.x[0] + def.x[1]) / 2, ROMAN_TOP, ROMAN_Z);
+    mesh.position.set((def.x[0] + def.x[1]) / 2, ROMAN_TOP, def.z ?? ROMAN_Z);
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     scene.add(mesh);
@@ -2201,8 +2205,9 @@ function setupCurtains() {
     const entry = {
       kind: 'roman', entity: def.entity, obj: mesh,
       closed: 0, target: 0, w, h,
+      minScale: def.min ?? 0.08, maxScale: def.max ?? 0.96,
     };
-    mesh.scale.y = 0.04;
+    mesh.scale.y = entry.minScale;
     curtains.push(entry);
     curtainTargets.push(mesh);
     mesh.userData.curtain = entry;
@@ -2240,8 +2245,9 @@ function updateCurtains(dt) {
       if (c.axis === 'x') c.pivot.scale.x = k;
       else c.pivot.scale.z = k;
     } else {
-      const y = 0.04 + 0.96 * c.closed;
-      c.obj.scale.y = y;
+      const min = c.minScale ?? 0.08;
+      const max = c.maxScale ?? 0.96;
+      c.obj.scale.y = min + (max - min) * c.closed;
     }
   }
 }
@@ -2376,6 +2382,14 @@ function logCamera() {
   return { pos: [f(p.x), f(p.y), f(p.z)], target: [f(t.x), f(t.y), f(t.z)], room: isolatedRoom };
 }
 
+function goHome() {
+  renderer.clippingPlanes = [];
+  isolatedRoom = null;
+  savedView = null;
+  flyToArc(new THREE.Vector3().fromArray(DEFAULT_VIEW.pos), new THREE.Vector3().fromArray(DEFAULT_VIEW.target), 950);
+  console.log('[camera] home');
+}
+
 function restoreView() {
   renderer.clippingPlanes = [];
   isolatedRoom = null;
@@ -2458,6 +2472,8 @@ function initUI() {
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
   const btnLight = document.getElementById('btn-light');
+  const btnHome = document.getElementById('btn-home');
+  if (btnHome) btnHome.addEventListener('click', goHome);
   const hint = document.querySelector('.hint');
 
   // temporary switches for the LED coves and the GU10 track lights
@@ -2560,6 +2576,7 @@ function initUI() {
     ceiling: () => scene.getObjectByName('CeilingShadow'),
     isolateRoom,
     restoreView,
+    goHome,
     isolated: () => isolatedRoom,
     logCamera,
     devices,
