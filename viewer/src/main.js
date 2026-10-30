@@ -735,8 +735,8 @@ const EXTRA_ROOMS = {
  *  (только чтение: сущности взяты из core.entity_registry / REST API)
  * ------------------------------------------------------------------ */
 const HA_LIGHTS = {
-  living:   { led: 'switch.light_hall_l1',             track: 'switch.light_hall_l2' },
-  kids:     { led: 'switch.light_nursery_l1',          track: 'switch.light_nursery_l2' },
+  living:   { track: 'switch.light_hall_l1',           led: 'switch.light_hall_l2' },
+  kids:     { led: 'switch.light_nursery_l2',          track: 'switch.light_nursery_l1' },
   kitchen:  { led: 'light.switch_kitchen_led',         track: 'switch.switch_kitchen_set_light_l1' },
   bedroom:  { led: 'switch.light_bedroom' },
   hall:     { led: 'switch.light_bedroom' },   // лента у зеркала в спальне
@@ -754,6 +754,16 @@ const HA_DEVICES = {
   'Sony_KD-065': 'media_player.tv_tcl_65',
   'Sony_KD-055': 'media_player.tv_tcl_32',
 };
+
+// все меши одного кондиционера -> одна сущность
+const HA_AC_PARTS = {
+  'climate.konder_gostinaia_air_conditioner': ['Pan_Back002', 'Pan_body002', 'Pan_front002', 'Pan_grid002', 'Line1789551236'],
+  'climate.konder_spalnia_air_conditioner': ['Pan_Back', 'Pan_body', 'Pan_front', 'Pan_grid'],
+  'climate.air_conditioner_as20hpl1hra': ['Pan_Back003', 'Pan_front003', 'Pan_grid003', 'Line1789551237'],
+};
+
+// книги и прочий мусор, который убираем из сцены на клиенте
+const REMOVE_3D = ['Object9318', 'BLADDRA_box', 'Object9319', 'Object002'];
 
 const HA_INFO = {
   'switch.light_hall_l1': 'гостиная, реле L1',
@@ -1514,6 +1524,8 @@ loader.load(
     buildTracks();
     buildCeiling();
     setupDevices();
+    setupCurtains();
+    removeJunk();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1668,6 +1680,7 @@ function pickAt(clientX, clientY) {
 
   const targets = [apartment];
   for (const g of Object.values(trackGroups)) targets.push(g);
+  for (const c of curtainTargets) targets.push(c);
   const hits = raycaster.intersectObjects(targets, true).filter((h) => h.object.isMesh);
   if (!hits.length) return null;
 
@@ -1701,6 +1714,11 @@ function setupSelection() {
     down = null;
     if (moved > 6 || elapsed > 700) return; // it was a drag, not a click
     const hit = pickAt(e.clientX, e.clientY);
+    const curt = hit ? curtainAt(hit.object) : null;
+    if (curt) {
+      toggleCurtain(curt);
+      return;
+    }
     const dev = hit ? deviceAt(hit.object) : null;
     if (dev) {
       toggleDevice(dev);
@@ -1948,6 +1966,33 @@ function looksLikeAc(mesh) {
   return mesh.isMesh && AC_RE.test(mesh.name);
 }
 
+function linkAcParts() {
+  for (const [entity, names] of Object.entries(HA_AC_PARTS)) {
+    const dev = devices.find((d) => d.entity === entity);
+    if (!dev) continue;
+    const parts = [];
+    for (const n of names) {
+      const o = apartment.getObjectByName(n);
+      if (!o) continue;
+      o.userData.device = dev;
+      parts.push(n);
+    }
+    dev.parts = parts;
+    console.log('[device]', entity, 'кликабельные части:', parts.join(', '));
+  }
+}
+
+function removeJunk() {
+  let n = 0;
+  for (const name of REMOVE_3D) {
+    const o = apartment.getObjectByName(name);
+    if (!o) continue;
+    o.parent.remove(o);
+    n++;
+  }
+  console.log('[cleanup] removed', n, 'objects');
+}
+
 function setupDevices() {
   const seen = [];
   apartment.traverse((o) => {
@@ -1968,6 +2013,7 @@ function setupDevices() {
     seen.push(c);
     registerDevice(o, 'ac');
   });
+  linkAcParts();
   console.log('[device] total', devices.length,
     devices.map((d) => d.kind + ':' + d.mesh.name).join(' | '));
 }
@@ -2049,6 +2095,154 @@ function updateDevices(dt, t) {
     }
     geo.attributes.position.needsUpdate = true;
     geo.attributes.color.needsUpdate = true;
+  }
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  Шторы: сдвижные (клик открывает/закрывает) и римские (сверху вниз)
+ * ------------------------------------------------------------------ */
+const CURTAIN_SLIDE = [
+  { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x' },
+  { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z' },
+];
+
+const CURTAIN_ROMAN = [
+  {
+    names: ['Plane1215', 'Plane004'], entity: 'cover.curtain_driver_left',
+    x: [-2.18, -0.79], color: 0xc4c4c4,
+  },
+  {
+    names: ['Plane1214', 'Plane006'], entity: 'cover.curtain_driver_right',
+    x: [-0.79, 0.60], color: 0xe6e6e6,
+  },
+];
+const ROMAN_TOP = 2.64;
+const ROMAN_BOTTOM = 0.56;
+const ROMAN_Z = -2.80;
+
+const curtains = [];
+const curtainTargets = [];
+
+function romanTexture() {
+  const c = document.createElement('canvas');
+  c.width = 32;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 32, 256);
+  for (let i = 0; i < 256; i += 26) {
+    const grd = g.createLinearGradient(0, i, 0, i + 26);
+    grd.addColorStop(0, 'rgba(0,0,0,0.10)');
+    grd.addColorStop(0.45, 'rgba(255,255,255,0.0)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.06)');
+    g.fillStyle = grd;
+    g.fillRect(0, i, 32, 26);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.repeat.set(1, 3);
+  return tex;
+}
+
+const ROMAN_TEX = romanTexture();
+
+function setupCurtains() {
+  apartment.updateMatrixWorld(true);
+
+  // сдвижные: оборачиваем створку в группу на краю окна и жмём по ширине
+  for (const def of CURTAIN_SLIDE) {
+    const mesh = apartment.getObjectByName(def.name);
+    if (!mesh) { console.warn('[curtain] нет', def.name); continue; }
+    const box = new THREE.Box3().setFromObject(mesh);
+    const cx = (box.min.x + box.max.x) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    const anchor = new THREE.Group();
+    anchor.position.set(
+      def.axis === 'x' ? box.min.x : cx,
+      (box.min.y + box.max.y) / 2,
+      def.axis === 'x' ? cz : box.min.z
+    );
+    apartment.add(anchor);
+    anchor.attach(mesh);
+    // в модели шторы нарисованы задёрнутыми
+    const entry = {
+      kind: 'slide', entity: def.entity, axis: def.axis,
+      obj: mesh, pivot: anchor, closed: 1, target: 1,
+    };
+    curtains.push(entry);
+    curtainTargets.push(mesh);
+    mesh.userData.curtain = entry;
+    console.log('[curtain] slide', def.name, def.entity);
+  }
+
+  // римские: вместо двух створок — одна штора, опускается сверху вниз
+  for (const def of CURTAIN_ROMAN) {
+    for (const n of def.names) {
+      const o = apartment.getObjectByName(n);
+      if (o) o.visible = false;
+    }
+    const w = def.x[1] - def.x[0];
+    const h = ROMAN_TOP - ROMAN_BOTTOM;
+    const geo = new THREE.PlaneGeometry(w, h);
+    geo.translate(0, -h / 2, 0); // верхний край в нуле
+    const mat = new THREE.MeshStandardMaterial({
+      color: def.color, roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
+      map: ROMAN_TEX.clone(), transparent: false,
+    });
+    mat.name = 'Apt_roman_blind';
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((def.x[0] + def.x[1]) / 2, ROMAN_TOP, ROMAN_Z);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    const entry = {
+      kind: 'roman', entity: def.entity, obj: mesh,
+      closed: 0, target: 0, w, h,
+    };
+    mesh.scale.y = 0.04;
+    curtains.push(entry);
+    curtainTargets.push(mesh);
+    mesh.userData.curtain = entry;
+    console.log('[curtain] roman', def.entity, 'x', def.x.join('..'));
+  }
+}
+
+function toggleCurtain(entry) {
+  if (!entry) return false;
+  entry.target = entry.closed > 0.5 ? 0 : 1;
+  console.log('[curtain]', entry.entity, entry.target ? 'CLOSE' : 'OPEN');
+  return true;
+}
+
+function curtainAt(object) {
+  let o = object;
+  while (o) {
+    if (o.userData && o.userData.curtain) return o.userData.curtain;
+    o = o.parent;
+  }
+  return null;
+}
+
+function updateCurtains(dt) {
+  for (const c of curtains) {
+    const d = c.target - c.closed;
+    if (Math.abs(d) < 0.002) {
+      c.closed = c.target;
+    } else {
+      c.closed += d * (1 - Math.exp(-dt * 3.2));
+    }
+    if (c.kind === 'slide') {
+      // closed = 1 — полотно во всю ширину (как в модели), 0 — собрано к краю
+      const k = 0.18 + 0.82 * c.closed;
+      if (c.axis === 'x') c.pivot.scale.x = k;
+      else c.pivot.scale.z = k;
+    } else {
+      const y = 0.04 + 0.96 * c.closed;
+      c.obj.scale.y = y;
+    }
   }
 }
 
@@ -2371,6 +2565,8 @@ function initUI() {
     devices,
     toggleDevice,
     ha: { lights: HA_LIGHTS, devices: HA_DEVICES, info: HA_INFO },
+    curtains,
+    toggleCurtain,
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
@@ -2489,7 +2685,9 @@ function render() {
   const dt = clock.getDelta();
 
   const nowMs = performance.now();
-  updateDevices(Math.min(0.1, (nowMs - (deviceClock || nowMs)) / 1000), nowMs / 1000);
+  const dtSec = Math.min(0.1, (nowMs - (deviceClock || nowMs)) / 1000);
+  updateDevices(dtSec, nowMs / 1000);
+  updateCurtains(dtSec);
   deviceClock = nowMs;
 
   if (activeTween) {
