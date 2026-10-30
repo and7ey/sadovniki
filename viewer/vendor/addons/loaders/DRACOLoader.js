@@ -10,7 +10,7 @@ import {
 	InterleavedBuffer,
 	InterleavedBufferAttribute,
 	LoaderUtils
-} from '../../three.module.js';
+} from '../../three.module.js?v=3';
 
 const _taskCache = new WeakMap();
 

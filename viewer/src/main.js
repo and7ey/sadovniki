@@ -1,4 +1,4 @@
-import * as THREE from '../vendor/three.module.js';
+import * as THREE from '../vendor/three.module.js?v=3';
 import { OrbitControls } from '../vendor/addons/controls/OrbitControls.js?v=2';
 import { GLTFLoader } from '../vendor/addons/loaders/GLTFLoader.js?v=2';
 import { DRACOLoader } from '../vendor/addons/loaders/DRACOLoader.js?v=2';

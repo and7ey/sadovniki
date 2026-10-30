@@ -3051,18 +3051,7 @@ const MathUtils = {
  */
 class Vector2 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Vector2.prototype.isVector2 = true;
-
-	}
+	static isVector2 = (Vector2.prototype.isVector2 = true, true);
 
 	/**
 	 * Constructs a new 2D vector.
@@ -4822,18 +4811,7 @@ class Quaternion {
  */
 class Vector3 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Vector3.prototype.isVector3 = true;
-
-	}
+	static isVector3 = (Vector3.prototype.isVector3 = true, true);
 
 	/**
 	 * Constructs a new 3D vector.
@@ -6084,18 +6062,7 @@ const _quaternion$5 = /*@__PURE__*/ new Quaternion();
  */
 class Matrix3 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Matrix3.prototype.isMatrix3 = true;
-
-	}
+	static isMatrix3 = (Matrix3.prototype.isMatrix3 = true, true);
 
 	/**
 	 * Constructs a new 3x3 matrix. The arguments are supposed to be
@@ -8098,18 +8065,7 @@ Texture.DEFAULT_ANISOTROPY = 1;
  */
 class Vector4 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Vector4.prototype.isVector4 = true;
-
-	}
+	static isVector4 = (Vector4.prototype.isVector4 = true, true);
 
 	/**
 	 * Constructs a new 4D vector.
@@ -10049,18 +10005,7 @@ class WebGL3DRenderTarget extends WebGLRenderTarget {
  */
 class Matrix4 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Matrix4.prototype.isMatrix4 = true;
-
-	}
+	static isMatrix4 = (Matrix4.prototype.isMatrix4 = true, true);
 
 	/**
 	 * Constructs a new 4x4 matrix. The arguments are supposed to be
@@ -57194,18 +57139,7 @@ class Cylindrical {
  */
 class Matrix2 {
 
-	static {
-
-		/**
-		 * This flag can be used for type testing.
-		 *
-		 * @type {boolean}
-		 * @readonly
-		 * @default true
-		 */
-		Matrix2.prototype.isMatrix2 = true;
-
-	}
+	static isMatrix2 = (Matrix2.prototype.isMatrix2 = true, true);
 
 	/**
 	 * Constructs a new 2x2 matrix. The arguments are supposed to be
