@@ -2614,6 +2614,8 @@ function initUI() {
   updateViewButton();
   setIcon(btnWalls, 'walls');
   btnWalls.title = 'Показать/скрыть стены';
+  // стартовое состояние: иконка света и фон под текущий режим
+  applyLighting(lightingMode);
 
   btnWalls.addEventListener('click', () => {
     const cutaway = wallTargetOpacity > 0.5;
