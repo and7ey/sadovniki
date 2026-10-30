@@ -967,8 +967,8 @@ function buildLightPools() {
     // slower falloff + more sources per run: the cove reads as one even wash
     // instead of a row of separate pools
     const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
-    light.castShadow = !LOW_POWER;
-    light.shadow.mapSize.set(256, 256);
+    light.castShadow = true;
+    light.shadow.mapSize.set(LOW_POWER ? 128 : 256, LOW_POWER ? 128 : 256);
     light.shadow.camera.near = 0.06;
     light.shadow.camera.far = 8;
     light.shadow.bias = -0.004;
@@ -982,8 +982,8 @@ function buildLightPools() {
     // GU10, 640 lm
     // open lamp: nearly a downward hemisphere, fully soft edge, slow falloff
     const spot = new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
-    spot.castShadow = !LOW_POWER;
-    spot.shadow.mapSize.set(512, 512);
+    spot.castShadow = true;
+    spot.shadow.mapSize.set(LOW_POWER ? 256 : 512, LOW_POWER ? 256 : 512);
     spot.shadow.camera.near = 0.08;
     spot.shadow.camera.far = 8;
     spot.shadow.bias = -0.0025;
@@ -1100,7 +1100,7 @@ function buildCeiling() {
   shape.closePath();
   const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
-  geo.translate(0, CEILING_Y + 0.02, 0);
+  geo.translate(0, CEILING_Y - 0.01, 0);
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
   mat.colorWrite = false;   // never appears on screen
   mat.depthWrite = false;
@@ -1110,7 +1110,7 @@ function buildCeiling() {
   mesh.receiveShadow = false;
   mesh.raycast = () => {};
   scene.add(mesh);
-  console.log('[ceiling] shadow catcher at y', CEILING_Y + 0.02);
+  console.log('[ceiling] shadow catcher at y', CEILING_Y - 0.01);
 }
 
 function setLight(kind, room, on) {
