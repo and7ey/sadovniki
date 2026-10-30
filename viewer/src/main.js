@@ -36,8 +36,10 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
-renderer.shadowMap.enabled = !LOW_POWER;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// тени нужны и на телефоне, иначе свет проходит сквозь стены;
+// там они дешевле: PCF вместо PCFSoft и маленькие карты
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = LOW_POWER ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
 // If the GPU still runs out of memory, recover instead of leaving a blank page:
