@@ -81,6 +81,25 @@ controls.autoRotateSpeed = 0.7;
  *  Environment + lights
  * ------------------------------------------------------------------ */
 /* two looks: the original daylight render and the night one */
+
+// иконки для нижнего столбца кнопок
+const UI_ICONS = {
+  iso: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7 20.6 7.3v9.4L12 21.3 3.4 16.7V7.3Z"/><path d="M12 12.1 20.6 7.3M12 12.1 3.4 7.3M12 12.1v9.2"/></svg>',
+  top: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2.2"/><path d="M3.4 9.8h17.2M9.8 3.4v17.2"/></svg>',
+  walls: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.6h18M3 16.4h18M8.4 3v4.6M15.6 7.6v8.8M8.4 16.4V21"/></svg>',
+  day: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg>',
+  evening: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18"/><path d="M6.8 18a5.2 5.2 0 0 1 10.4 0"/><path d="M12 3.4v2.4M5.4 6.6l1.7 1.7M18.6 6.6l-1.7 1.7"/></svg>',
+  night: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 14.6A8.4 8.4 0 1 1 9.4 3.8a6.7 6.7 0 0 0 10.8 10.8Z"/></svg>',
+};
+
+function setIcon(btn, name) {
+  if (!btn || !UI_ICONS[name]) return;
+  if (btn.dataset.icon !== name) {
+    btn.innerHTML = UI_ICONS[name];
+    btn.dataset.icon = name;
+  }
+}
+
 const LIGHT_PRESETS = {
   night: {
     label: 'Ночь',
@@ -183,8 +202,8 @@ function applyLighting(mode) {
   document.body.classList.toggle('day', mode === 'day');
   const btn = document.getElementById('btn-light');
   if (btn) {
-    btn.textContent = LIGHT_NEXT_LABEL[mode] || 'День';
-    btn.title = 'Освещение: ' + p.label + ' → ' + (LIGHT_NEXT_LABEL[mode] || '');
+    setIcon(btn, mode === 'day' ? 'day' : mode === 'evening' ? 'evening' : 'night');
+    btn.title = 'Освещение: ' + p.label + ' — нажмите для «' + (LIGHT_NEXT_LABEL[mode] || '') + '»';
   }
   return mode;
 }
@@ -2524,7 +2543,10 @@ function goTopCurrent() {
 function updateViewButton() {
   const b = document.getElementById('btn-view');
   if (!b) return;
-  b.textContent = viewMode === 'top' ? 'Изометрия' : 'Сверху';
+  setIcon(b, viewMode === 'top' ? 'top' : 'iso');
+  b.title = viewMode === 'top'
+    ? 'Вид сверху — нажмите, чтобы вернуть камеру'
+    : 'Изометрия — нажмите для вида сверху';
   b.classList.toggle('active', viewMode === 'top');
 }
 
@@ -2590,6 +2612,8 @@ function initUI() {
 
   if (btnView) btnView.addEventListener('click', toggleView);
   updateViewButton();
+  setIcon(btnWalls, 'walls');
+  btnWalls.title = 'Показать/скрыть стены';
 
   btnWalls.addEventListener('click', () => {
     const cutaway = wallTargetOpacity > 0.5;
