@@ -1351,7 +1351,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
 loader.load(
-  './public/apartment.glb?v=14',
+  './public/apartment.glb?v=15',
   (gltf) => {
     apartment = gltf.scene;
 
@@ -2103,8 +2103,15 @@ function updateDevices(dt, t) {
  *  Шторы: сдвижные (клик открывает/закрывает) и римские (сверху вниз)
  * ------------------------------------------------------------------ */
 const CURTAIN_SLIDE = [
-  { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x' },
-  { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z' },
+  // северная: вплотную к Plane003, шириной до правого края окна (Window023: 2.08..3.77)
+  { name: 'Plane008', entity: 'cover.curtain_driver2_hall', axis: 'x', fit: [2.13, 3.87] },
+  // восточная: докрывает окно до следующей шторы
+  { name: 'Plane1200', entity: 'cover.curtain_motor_hall', axis: 'z', fit: [-2.46, -0.70] },
+];
+
+// статичные створки, которым меняем размер (Plane003 — вдвое уже)
+const CURTAIN_TRIM = [
+  { name: 'Plane003', axis: 'x', fit: [1.69, 2.13] },
 ];
 
 // обе шторы на всю ширину окна; левая опускается меньше, правая — почти до низа,
@@ -2112,11 +2119,11 @@ const CURTAIN_SLIDE = [
 const CURTAIN_ROMAN = [
   {
     names: ['Plane1215', 'Plane004'], entity: 'cover.curtain_driver_left',
-    x: [-2.18, 0.60], color: 0xc4c4c4, z: -2.72, min: 0.14, max: 0.55,
+    x: [-2.18, 0.60], color: 0xc4c4c4, z: -2.87, min: 0.14, max: 0.90,
   },
   {
     names: ['Plane1214', 'Plane006'], entity: 'cover.curtain_driver_right',
-    x: [-2.18, 0.60], color: 0xe6e6e6, z: -2.78, min: 0.10, max: 0.95,
+    x: [-2.18, 0.60], color: 0xe6e6e6, z: -2.85, min: 0.10, max: 1.00,
   },
 ];
 const ROMAN_TOP = 2.64;
@@ -2150,13 +2157,41 @@ function romanTexture() {
 
 const ROMAN_TEX = romanTexture();
 
+// сжать/растянуть меш по мировой оси так, чтобы он занял [from, to]
+function fitMesh(mesh, axis, from, to) {
+  mesh.updateMatrixWorld(true);
+  const t = axis === 'x' ? 'x' : 'z';
+  const b0 = new THREE.Box3().setFromObject(mesh);
+  const cur = b0.max[t] - b0.min[t];
+  const target = to - from;
+  if (cur > 1e-4 && Math.abs(target - cur) > 1e-3) {
+    const k = target / cur;
+    if (axis === 'x') mesh.scale.x *= k;
+    else mesh.scale.z *= k;
+    mesh.updateMatrixWorld(true);
+  }
+  const b1 = new THREE.Box3().setFromObject(mesh);
+  const delta = from - b1.min[t];
+  if (axis === 'x') mesh.position.x += delta;
+  else mesh.position.z += delta;
+  mesh.updateMatrixWorld(true);
+}
+
 function setupCurtains() {
   apartment.updateMatrixWorld(true);
+
+  for (const def of CURTAIN_TRIM) {
+    const mesh = apartment.getObjectByName(def.name);
+    if (!mesh) continue;
+    fitMesh(mesh, def.axis, def.fit[0], def.fit[1]);
+    console.log('[curtain] trim', def.name, '→', def.fit.join('..'));
+  }
 
   // сдвижные: оборачиваем створку в группу на краю окна и жмём по ширине
   for (const def of CURTAIN_SLIDE) {
     const mesh = apartment.getObjectByName(def.name);
     if (!mesh) { console.warn('[curtain] нет', def.name); continue; }
+    if (def.fit) fitMesh(mesh, def.axis, def.fit[0], def.fit[1]);
     const box = new THREE.Box3().setFromObject(mesh);
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;

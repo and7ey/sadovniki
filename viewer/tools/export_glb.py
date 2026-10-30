@@ -57,6 +57,9 @@ REMOVE_EXTRA = {
 }
 REMOVE_PREFIX = ('set_19_',)
 
+# книги в шкафу детской: мелкие объекты внутри объёма шкафа (Blender coords)
+REMOVE_ZONE = {'x': (8.70, 9.85), 'y': (5.28, 5.72), 'z': (0.0, 2.95), 'max_dim': 0.5}
+
 # merged groups of small objects to remove entirely (c02 deliberately kept)
 REMOVE_GROUPS = {'c01', 'c11', 'c13', 'c15'}
 
@@ -338,6 +341,18 @@ for it in items:
                 best, bd = i, d
         it[2] = 'c%02d' % best
 
+def in_remove_zone(o):
+    z = REMOVE_ZONE
+    mw = o.matrix_world
+    bb = [mw @ Vector(c) for c in o.bound_box]
+    cx = sum(v.x for v in bb) / 8
+    cy = sum(v.y for v in bb) / 8
+    cz = sum(v.z for v in bb) / 8
+    if not (z['x'][0] < cx < z['x'][1] and z['y'][0] < cy < z['y'][1] and z['z'][0] < cz < z['z'][1]):
+        return False
+    return max(o.dimensions) < z['max_dim']
+
+
 # ---------- removals ----------
 removed = 0
 kept = []
@@ -345,6 +360,7 @@ for it in items:
     o, col, key = it
     name = san(o.name)
     drop = (name in REMOVE or name in REMOVE_EXTRA or name.startswith(REMOVE_PREFIX)
+            or in_remove_zone(o)
             or (key in REMOVE_GROUPS and o.dimensions.length < LARGE_MIN))
     if drop and in_keep_zone(o):
         drop = False
