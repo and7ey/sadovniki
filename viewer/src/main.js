@@ -932,7 +932,7 @@ function refreshLeds() {
     }
     light.position.set(p[0], p[1], p[2]);
     light.intensity = LED_INTENSITY;
-    light.shadow.needsUpdate = true;
+    if (light.castShadow) light.shadow.needsUpdate = true;
   });
   return picked.length;
 }
@@ -954,40 +954,42 @@ function refreshTracks() {
     spot.target.position.set(f.x, 0, f.z);
     spot.target.updateMatrixWorld();
     spot.intensity = f.intensity;
-    spot.shadow.needsUpdate = true;
+    if (spot.castShadow) spot.shadow.needsUpdate = true;
   });
   return picked.length;
 }
 
 function buildLightPools() {
-  if (LOW_POWER) return;
-  for (let i = 0; i < LED_POOL; i++) {
+  // на телефоне пул меньше и без теней, но свет всё равно работает
+  const ledCount = LOW_POWER ? 3 : LED_POOL;
+  const spotCount = LOW_POWER ? 3 : SPOT_POOL;
+  for (let i = 0; i < ledCount; i++) {
     // slower falloff + more sources per run: the cove reads as one even wash
     // instead of a row of separate pools
     const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
-    light.castShadow = true;
+    light.castShadow = !LOW_POWER;
     light.shadow.mapSize.set(256, 256);
     light.shadow.camera.near = 0.06;
     light.shadow.camera.far = 8;
     light.shadow.bias = -0.004;
     light.shadow.normalBias = 0.03;
     light.shadow.autoUpdate = false;
-    light.shadow.needsUpdate = true;
+    if (light.castShadow) light.shadow.needsUpdate = true;
     scene.add(light);
     ledPool.push(light);
   }
-  for (let i = 0; i < SPOT_POOL; i++) {
+  for (let i = 0; i < spotCount; i++) {
     // GU10, 640 lm
     // open lamp: nearly a downward hemisphere, fully soft edge, slow falloff
     const spot = new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
-    spot.castShadow = true;
+    spot.castShadow = !LOW_POWER;
     spot.shadow.mapSize.set(512, 512);
     spot.shadow.camera.near = 0.08;
     spot.shadow.camera.far = 8;
     spot.shadow.bias = -0.0025;
     spot.shadow.normalBias = 0.03;
     spot.shadow.autoUpdate = false;
-    spot.shadow.needsUpdate = true;
+    if (spot.castShadow) spot.shadow.needsUpdate = true;
     scene.add(spot, spot.target);
     spotPool.push(spot);
   }
