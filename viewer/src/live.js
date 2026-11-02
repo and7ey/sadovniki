@@ -121,9 +121,17 @@ let posTimer = null;
 
 // калибровка «единицы карты -> мировые координаты сцены»:
 // xw = ox + (x * cos + y * sin) * scale ; zw = oz + (-x * sin + y * cos) * scale
+function loadCal() {
+  try {
+    const raw = localStorage.getItem('apt-vacuum-cal');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return (window.__APT_LIVE__ || {}).vacuumCal || null;
+}
+
 function mapToWorld(x, y) {
-  const cal = (window.__APT_LIVE__ || {}).vacuumCal;
-  if (!cal) return null;
+  const cal = loadCal();
+  if (!cal) return;
   const rad = (cal.rot || 0) * Math.PI / 180;
   const c = Math.cos(rad), s2 = Math.sin(rad);
   return [cal.ox + (x * c + y * s2) * cal.scale, cal.oz + (-x * s2 + y * c) * cal.scale];
@@ -244,6 +252,56 @@ function send(payload) {
   return true;
 }
 
+/* Калибровка по точкам.
+   Пока пылесос стоит в известном месте, набрать в консоли:
+     __viewer.calibPoint(мировойX, мировойZ)
+   два раза в разных местах — матрица посчитается и запомнится. */
+const calibPairs = [];
+
+function fitSimilarity(pairs) {
+  // pairs: [[mapX, mapY, worldX, worldZ], ...]
+  const n = pairs.length;
+  const mx = pairs.reduce((a,p)=>a+p[0],0)/n, my = pairs.reduce((a,p)=>a+p[1],0)/n;
+  const wx = pairs.reduce((a,p)=>a+p[2],0)/n, wz = pairs.reduce((a,p)=>a+p[3],0)/n;
+  let num = 0, den = 0;
+  for (const [px, py, qx, qz] of pairs) {
+    num += (px-mx)*(qx-wx) + (py-my)*(qz-wz);
+    den += (px-mx)**2 + (py-my)**2;
+  }
+  if (den < 1e-6) return null;
+  const scale = num/den;
+  // поворот: R * (p - m) = q - w  (2D similarity, без отражения)
+  let sa = 0, ca = 0;
+  for (const [px, py, qx, qz] of pairs) {
+    const ux = px-mx, uy = py-my, vx = qx-wx, vz = qz-wz;
+    sa += ux*vz - uy*vx;
+    ca += ux*vx + uy*vz;
+  }
+  const ang = Math.atan2(sa, ca);
+  const ox = wx - scale*(Math.cos(ang)*mx - Math.sin(ang)*my);
+  const oz = wz - scale*(Math.sin(ang)*mx + Math.cos(ang)*my);
+  return { scale, rot: ang*180/Math.PI, ox, oz };
+}
+
+window.__viewer = window.__viewer || {};
+function attachCalib(viewer) {
+  viewer.calibPoint = (wx, wz) => {
+    const p = window.__live && window.__live.vacuumPos;
+    if (!p) { console.warn('[calib] нет координат пылесоса — он должен убираться'); return null; }
+    calibPairs.push([p.map[0], p.map[1], wx, wz]);
+    console.info('[calib] точка', calibPairs.length, 'map', p.map, '-> world', [wx, wz]);
+    if (calibPairs.length >= 2) {
+      const cal = fitSimilarity(calibPairs);
+      if (cal) {
+        localStorage.setItem('apt-vacuum-cal', JSON.stringify(cal));
+        console.info('[calib] готово', cal, '— сохранено в localStorage');
+      }
+    }
+    return calibPairs.length;
+  };
+  viewer.calibReset = () => { calibPairs.length = 0; localStorage.removeItem('apt-vacuum-cal'); console.info('[calib] сброшено'); };
+}
+
 // доступно сцене: управление реальными реле
 window.__ha = {
   connected: false,
@@ -278,6 +336,7 @@ window.__ha = {
 
 export async function startLive() {
   const viewer = await waitViewer();
+  if (viewer && !viewer.calibPoint) attachCalib(viewer);
   if (!viewer) {
     console.info("[live] сцена не загрузилась — синхронизация не запущена");
     return;
