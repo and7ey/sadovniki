@@ -2659,6 +2659,11 @@ let dragStartY = 0;
 
 const RADIATOR_STEP = 0.05;
 
+// печатаем в понятных осях: x и y — по полу, h — высота
+function fmtAnchor(a) {
+  return 'x ' + a[0].toFixed(2) + ', y ' + a[2].toFixed(2) + ', h ' + a[1].toFixed(2);
+}
+
 function setActiveRadiator(entity) {
   activeRadiator = entity;
   const panel = document.getElementById('nudge');
@@ -2671,7 +2676,7 @@ function updateNudgeLabel() {
   if (!el) return;
   if (!activeRadiator) { el.textContent = '—'; return; }
   const a = (RADIATORS[activeRadiator] || {}).anchor || [0, 0, 0];
-  el.textContent = a.map((v) => v.toFixed(2)).join(', ');
+  el.textContent = fmtAnchor(a);
 }
 
 function nudgeRadiator(axis, dir) {
@@ -2683,7 +2688,7 @@ function nudgeRadiator(axis, dir) {
   const hi = axis === 'y' ? 2.95 : 8;
   info.anchor[i] = +Math.max(lo, Math.min(hi, info.anchor[i] + dir * RADIATOR_STEP)).toFixed(2);
   radiatorDevices.delete(activeRadiator);
-  console.log('[radiator]', activeRadiator, 'anchor', info.anchor);
+  console.log('[radiator]', activeRadiator, fmtAnchor(info.anchor));
   updateNudgeLabel();
   buildCallouts();
 }
@@ -3030,7 +3035,7 @@ function buildCallouts() {
           }
           if (RADIATORS[item.entity]) RADIATORS[item.entity].anchor = a;
           radiatorDevices.delete(item.entity);
-          console.log('[radiator]', item.entity, viewMode === 'top' ? '(x,z)' : '(z)', a);
+          console.log('[radiator]', item.entity, viewMode === 'top' ? '(по полу)' : '(по высоте)', fmtAnchor(a));
         }
         buildCallouts();
       };
@@ -3258,7 +3263,7 @@ function initUI() {
       info.anchor = xyz.slice(0, 3);
       radiatorDevices.delete(entity);
       buildCallouts();
-      console.log('[radiator]', entity, 'anchor', xyz);
+      console.log('[radiator]', entity, fmtAnchor(info.anchor));
       return info.anchor;
     },
     enableSelection: (v) => { selectionEnabled = !!v; console.log('[select] mode', selectionEnabled ? 'on' : 'off'); return selectionEnabled; },
