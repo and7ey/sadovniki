@@ -113,13 +113,54 @@ const ROOM_BY_NAME = {
   "Гардероб": "bedroom",
 };
 
+// координаты робота: roborock.get_vacuum_current_position (единицы карты)
+const POS_SERVICE = { domain: "roborock", service: "get_vacuum_current_position" };
+let posMsgId = 500;
+let vacuumActive = false;
+let posTimer = null;
+
+// калибровка «единицы карты -> мировые координаты сцены»:
+// xw = ox + (x * cos + y * sin) * scale ; zw = oz + (-x * sin + y * cos) * scale
+function mapToWorld(x, y) {
+  const cal = (window.__APT_LIVE__ || {}).vacuumCal;
+  if (!cal) return null;
+  const rad = (cal.rot || 0) * Math.PI / 180;
+  const c = Math.cos(rad), s2 = Math.sin(rad);
+  return [cal.ox + (x * c + y * s2) * cal.scale, cal.oz + (-x * s2 + y * c) * cal.scale];
+}
+
+function requestPosition() {
+  if (!socket || socket.readyState !== 1) return;
+  socket.send(JSON.stringify({
+    id: posMsgId++,
+    type: "call_service",
+    domain: POS_SERVICE.domain,
+    service: POS_SERVICE.service,
+    service_data: {},
+    target: { entity_id: "vacuum.roborock_s7" },
+    return_response: true,
+  }));
+}
+
 function syncVacuum(viewer, states) {
   const v = states[VACUUM_ENTITY];
   if (!v) return;
   const active = VACUUM_ACTIVE.has(v.state);
   if (viewer.setVacuumVisible) viewer.setVacuumVisible(active);
+  if (active !== vacuumActive) {
+    vacuumActive = active;
+    if (active) {
+      requestPosition();
+      if (posTimer) clearInterval(posTimer);
+      posTimer = setInterval(requestPosition, 10000);
+    } else if (posTimer) {
+      clearInterval(posTimer);
+      posTimer = null;
+    }
+  }
   if (!active) return;
   const room = states[VACUUM_ROOM_ENTITY];
+  if (room) window.__live.vacuumRoom = room.state;
   if (room && viewer.vacuumToRoom) {
     const id = ROOM_BY_NAME[room.state];
     if (id) viewer.vacuumToRoom(id);
@@ -278,6 +319,18 @@ export async function startLive() {
         console.info("[live] подключено к Home Assistant");
         ws.send(JSON.stringify({ id: 1, type: "get_states" }));
         ws.send(JSON.stringify({ id: 2, type: "subscribe_events", event_type: "state_changed" }));
+        return;
+      }
+      if (msg.type === "result" && msg.id >= 500 && msg.id < 600) {
+        const resp = (msg.result && msg.result.response) || {};
+        const pos = resp["vacuum.roborock_s7"];
+        if (pos && typeof pos.x === "number") {
+          const w = mapToWorld(pos.x, pos.y);
+          window.__live.vacuumPos = { map: [pos.x, pos.y], world: w };
+          const room = window.__live.vacuumRoom || '?';
+          console.info('[vacuum] map', pos.x, pos.y, 'room', room);
+          if (w && viewer.setVacuumPosition) viewer.setVacuumPosition(w[0], w[1]);
+        }
         return;
       }
       if (msg.type === "result" && msg.id >= 10) {
