@@ -2652,6 +2652,7 @@ const ROOM_CALLOUTS = {
 };
 
 let calloutItems = [];
+let itemDrag = null;
 let underfloor = null;
 let underfloorOn = false;
 
@@ -2929,6 +2930,7 @@ function buildCallouts() {
     el.innerHTML = (ICON[item.type] || '') + '<i class="dot"></i>';
     el.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      if (el.dataset.dragged === '1') { delete el.dataset.dragged; return; }
       if (item.type === 'curtain') {
         const c = curtains.find((x) => x.entity === item.entity);
         if (c) { toggleCurtain(c); refreshCalloutStates(); }
@@ -2948,6 +2950,48 @@ function buildCallouts() {
       }
       updateCalloutPositions();
     });
+    // батареи можно тащить мышкой: на отпускании позиция уходит в консоль
+    if (item.type === 'radiator') {
+      el.style.cursor = 'grab';
+      el.title = (el.title || '') + ' — перетащите';
+      el.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        itemDrag = { entry: null, entity: item.entity, moved: false };
+        try { el.setPointerCapture(ev.pointerId); } catch (err) { /* синтетические события */ }
+        const rect = renderer.domElement.getBoundingClientRect();
+        itemDrag.offsetX = rect.left;
+        itemDrag.offsetY = rect.top;
+        el.classList.add('dragging');
+        controls.enabled = false;
+      });
+      el.addEventListener('pointermove', (ev) => {
+        if (!itemDrag || itemDrag.entity !== item.entity) return;
+        itemDrag.moved = true;
+        el.style.left = (ev.clientX - itemDrag.offsetX) + 'px';
+        el.style.top = (ev.clientY - itemDrag.offsetY) + 'px';
+      });
+      const finish = (ev) => {
+        if (!itemDrag || itemDrag.entity !== item.entity) return;
+        const dragged = itemDrag.moved;
+        itemDrag = null;
+        controls.enabled = true;
+        el.classList.remove('dragging');
+        if (!dragged) { updateCalloutPositions(); return; }
+        el.dataset.dragged = '1';
+        const hit = pickAt(ev.clientX, ev.clientY);
+        if (hit && hit.point) {
+          const a = [+hit.point.x.toFixed(2), +hit.point.y.toFixed(2), +hit.point.z.toFixed(2)];
+          if (RADIATORS[item.entity]) RADIATORS[item.entity].anchor = a;
+          radiatorDevices.delete(item.entity);
+          console.log('[radiator]', item.entity, 'anchor', a);
+        }
+        buildCallouts();
+      };
+      el.addEventListener('pointerup', finish);
+      el.addEventListener('pointercancel', finish);
+    }
+
     host.appendChild(el);
     calloutItems.push({
       anchor, el, item,
@@ -2975,6 +3019,7 @@ function updateCalloutPositions() {
   if (!calloutItems.length) return;
   const rect = renderer.domElement.getBoundingClientRect();
   for (const c of calloutItems) {
+    if (c.el.classList.contains('dragging')) continue;
     const p = c.anchor.clone().project(camera);
     if (p.z > 1) { c.el.style.display = 'none'; continue; }
     c.el.style.display = '';

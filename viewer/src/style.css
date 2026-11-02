@@ -520,3 +520,12 @@ body.day .callout { background: rgba(255, 255, 255, 0.86); color: #2c3b52; }
 body.day .sheet { background: rgba(255, 255, 255, 0.9); color: #22304a; border-color: rgba(20, 40, 70, 0.08); }
 body.day .switch { background: rgba(20, 40, 70, 0.14); }
 body.day .round { background: rgba(20, 40, 70, 0.06); color: #22304a; border-color: rgba(20, 40, 70, 0.12); }
+
+.callout.dragging {
+  cursor: grabbing;
+  transform: translate(-50%, calc(-100% - 18px)) scale(1.08);
+  border-color: rgba(255, 207, 138, 0.8);
+  z-index: 5;
+}
+.callout.dragging::after,
+.callout.dragging .dot { opacity: 0.25; }
