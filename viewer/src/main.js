@@ -91,6 +91,7 @@ const UI_ICONS = {
   walls: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.6h18M3 16.4h18M8.4 3v4.6M15.6 7.6v8.8M8.4 16.4V21"/></svg>',
   day: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg>',
   evening: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18"/><path d="M6.8 18a5.2 5.2 0 0 1 10.4 0"/><path d="M12 3.4v2.4M5.4 6.6l1.7 1.7M18.6 6.6l-1.7 1.7"/></svg>',
+  rotate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 12a8.2 8.2 0 1 1-2.6-6"/><path d="M20.4 3.6v4.6h-4.6"/></svg>',
   night: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 14.6A8.4 8.4 0 1 1 9.4 3.8a6.7 6.7 0 0 0 10.8 10.8Z"/></svg>',
 };
 
@@ -1184,16 +1185,7 @@ function moveFixtureTo(point) {
   return { room, index, x: +point.x.toFixed(2), z: +point.z.toFixed(2) };
 }
 
-function showHint(text) {
-  const el = document.getElementById('selected');
-  if (!el) return;
-  if (!text) return;
-  el.hidden = false;
-  const id = document.getElementById('selected-id');
-  const size = document.getElementById('selected-size');
-  if (id) id.textContent = text;
-  if (size) size.textContent = '';
-}
+function showHint() { /* плашка «Выбрано» убрана */ }
 
 /* ------------------------------------------------------------------ *
  *  State
@@ -1549,6 +1541,7 @@ loader.load(
     setupDevices();
     setupCurtains();
     removeJunk();
+    setupUnderfloor();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -1715,18 +1708,11 @@ function pickAt(clientX, clientY) {
 }
 
 function setupSelection() {
-  selectedEl = document.getElementById('selected');
-  selectedIdEl = document.getElementById('selected-id');
-  selectedSizeEl = document.getElementById('selected-size');
-
   let down = null;
   const el = renderer.domElement;
 
   el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) {
-      down = null;
-      return;
-    }
+    if (e.button !== 0) { down = null; return; }
     down = { x: e.clientX, y: e.clientY, t: performance.now() };
   });
 
@@ -1735,33 +1721,22 @@ function setupSelection() {
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     const elapsed = performance.now() - down.t;
     down = null;
-    if (moved > 6 || elapsed > 700) return; // it was a drag, not a click
+    if (moved > 6 || elapsed > 700) return; // протаскивание, а не тап
+    if (sheetOpenFor) { closeSheet(); return; }
     const hit = pickAt(e.clientX, e.clientY);
-    const curt = hit ? curtainAt(hit.object) : null;
-    if (curt) {
-      toggleCurtain(curt);
-      return;
-    }
-    const dev = hit ? deviceAt(hit.object) : null;
-    if (dev) {
-      toggleDevice(dev);
-      return;
-    }
-    const fixture = hit ? fixtureAt(hit.object) : null;
-    if (fixture) {
-      startFixtureMove(fixture.room, fixture.index);
-      return;
-    }
-    if (pendingMove) {
-      if (hit) moveFixtureTo(hit.point);
-      return;
-    }
-    selectMesh(hit ? hit.object : null, hit ? hit.point : null);
+    if (!hit) return;
+    const curt = curtainAt(hit.object);
+    if (curt) { toggleCurtain(curt); return; }
+    const dev = deviceAt(hit.object);
+    if (dev) { openDeviceSheet(dev); return; }
+    const fixture = fixtureAt(hit.object);
+    if (fixture) { startFixtureMove(fixture.room, fixture.index); return; }
+    if (pendingMove) { moveFixtureTo(hit.point); return; }
+    // выделение и одиночный зум по тапу убраны: комната открывается двойным
   });
 
   el.addEventListener('pointercancel', () => { down = null; });
 
-  // двойной клик по комнате: изолировать / вернуть общий вид
   el.addEventListener('dblclick', (e) => {
     e.preventDefault();
     toggleRoomAt(e.clientX, e.clientY);
@@ -1780,10 +1755,6 @@ function setupSelection() {
       lastTap = now;
       lastTapPos = { x: e.clientX, y: e.clientY };
     }
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') deselect();
   });
 }
 
@@ -2426,7 +2397,7 @@ function isolateRoom(id) {
 
   if (viewMode === 'top') goTopCurrent();
   else flyToArc(cam, tgt, 1100);
-  showHint('Комната: ' + r.label + ' — двойной клик вернёт общий вид');
+  updateRoomChrome();
   console.log('[room] isolate', id, 'view', v.pos.join(', '), '->', v.target.join(', '));
 }
 
@@ -2456,6 +2427,8 @@ function goHome() {
 function restoreView() {
   renderer.clippingPlanes = [];
   isolatedRoom = null;
+  closeSheet();
+  updateRoomChrome();
   if (savedView) {
     flyToArc(savedView.pos, savedView.target, 1000);
     savedView = null;
@@ -2576,49 +2549,376 @@ function goTop() {
   flyTo(new THREE.Vector3(0, d, 0.01), new THREE.Vector3(0, 0, 0));
 }
 
+
+/* ------------------------------------------------------------------ *
+ *  Плашки, свет по комнате, выносные иконки и карточки устройств
+ * ------------------------------------------------------------------ */
+const ROOM_TEMP = {
+  living: 23.4, kids: 22.6, bedroom: 22.9, kitchen: 23.8,
+  bath: 24.6, wc: 24.1, hall: 23.0, balcony: 11.8,
+};
+
+const ROOM_ICON = {
+  living: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13v-2.6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2V13"/><path d="M2.6 13h18.8v4.4H2.6z"/><path d="M6 8.4V6.2h12v2.2"/></svg>',
+  kids: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 18.6v-5.2h18.8v5.2"/><path d="M2.6 13.4V7.4h8.2v6"/><path d="M12.8 13.4V8.6h5.4a3.2 3.2 0 0 1 3.2 3.2v1.6"/></svg>',
+  bedroom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18V9.2a1.6 1.6 0 0 1 1.6-1.6H13v6.6"/><path d="M13 14.2h8V18"/><path d="M2.4 18h19.2"/><circle cx="16.6" cy="11.8" r="1.6"/></svg>',
+  kitchen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.4 10.4h15.2v4.4a4.4 4.4 0 0 1-4.4 4.4H8.8a4.4 4.4 0 0 1-4.4-4.4Z"/><path d="M8.2 7.2V10M12 5.6V10M15.8 7.2V10"/></svg>',
+  bath: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12.4h18v2.8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6.4 12.4V6.6a2.2 2.2 0 0 1 4.4 0"/><path d="M6 19.2V21M18 19.2V21"/></svg>',
+  wc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 3.8h7v7.4h-7z"/><path d="M6.6 11.2h8.6a5.4 5.4 0 0 1-4.4 5.4H9.2"/><path d="M10.4 16.6V21"/></svg>',
+  hall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9.6v18H6Z"/><circle cx="13" cy="12" r="1"/></svg>',
+  balcony: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>',
+};
+
+// какие группы света есть у комнаты
+const ROOM_LIGHT_KEYS = {
+  living: { track: 'living', led: 'living' },
+  kids: { track: 'kids', led: 'kids' },
+  kitchen: { track: 'kitchen', led: 'kitchen' },
+  bedroom: { led: 'hall' },
+  hall: { track: 'corridor' },
+  bath: { track: 'bath', led: 'bath' },
+  wc: { track: 'wc', led: 'wc' },
+  balcony: { track: 'balcony' },
+};
+
+const AC_INFO = {
+  'climate.konder_gostinaia_air_conditioner': { room: 'living', current: 26.5 },
+  'climate.konder_spalnia_air_conditioner': { room: 'bedroom', current: 26.5 },
+  'climate.air_conditioner_as20hpl1hra': { room: 'kitchen', current: 24.0 },
+};
+
+const ICON = {
+  ac: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.6" y="5" width="18.8" height="7.4" rx="2"/><path d="M5.6 9.2h12.8"/><path d="M7 15.6c0 1.8 1.4 3.2 3.2 3.2M13.8 15.6c0 1.8 1.4 3.2 3.2 3.2"/></svg>',
+  curtain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3.4h16"/><path d="M6.6 3.4c0 6-2.2 8.4-2.2 17.2M17.4 3.4c0 6 2.2 8.4 2.2 17.2"/><path d="M12 3.4v17.2"/></svg>',
+  tv: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.6" y="4.4" width="18.8" height="12.2" rx="2"/><path d="M8.6 20.4h6.8"/><path d="M12 16.6v3.8"/></svg>',
+  floor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.4h18"/><path d="M3 12h18"/><path d="M3 17.6h18"/><path d="M7.5 6.4v5.6M16.5 12v5.6"/></svg>',
+  radiator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.4" y="6" width="17.2" height="12" rx="2"/><path d="M8 6v12M12 6v12M16 6v12"/></svg>',
+};
+
+const ROOM_CALLOUTS = {
+  living: [
+    { type: 'ac', entity: 'climate.konder_gostinaia_air_conditioner' },
+    { type: 'tv', mesh: 'Sony_KD-065' },
+    { type: 'curtain', entity: 'cover.curtain_driver2_hall' },
+    { type: 'curtain', entity: 'cover.curtain_motor_hall' },
+  ],
+  bedroom: [
+    { type: 'ac', entity: 'climate.konder_spalnia_air_conditioner' },
+    { type: 'curtain', entity: 'cover.curtain_driver_bedroom' },
+  ],
+  kitchen: [
+    { type: 'ac', entity: 'climate.air_conditioner_as20hpl1hra' },
+    { type: 'tv', mesh: 'Sony_KD-055' },
+  ],
+  bath: [
+    { type: 'floor', entity: 'switch.underfloor_heating_bathroom' },
+  ],
+  kids: [
+    { type: 'curtain', entity: 'cover.curtain_driver_left' },
+    { type: 'curtain', entity: 'cover.curtain_driver_right' },
+  ],
+};
+
+let calloutItems = [];
+let underfloor = null;
+let underfloorOn = false;
+
+/* --- свет по комнате и «выключить всё» --- */
+function roomLightKey(room, kind) {
+  const m = ROOM_LIGHT_KEYS[room];
+  return m ? m[kind] : null;
+}
+
+function toggleRoomLight(kind) {
+  if (!isolatedRoom) return;
+  const key = roomLightKey(isolatedRoom, kind);
+  if (!key) return;
+  const stateKey = kind + key[0].toUpperCase() + key.slice(1);
+  const on = !lightState[stateKey];
+  setLight(kind, key, on);
+  updateRoomChrome();
+}
+
+function allLightsOff() {
+  for (const kind of ['led', 'track']) {
+    for (const room of ['living', 'kids', 'kitchen', 'hall', 'bath', 'wc', 'corridor', 'balcony']) {
+      const stateKey = kind + room[0].toUpperCase() + room.slice(1);
+      if (lightState[stateKey]) setLight(kind, room, false);
+    }
+  }
+  updateRoomChrome();
+}
+
+/* --- карточка температуры --- */
+function averageTemp() {
+  const v = Object.values(ROOM_TEMP);
+  return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+function updateClimateCard() {
+  const card = document.getElementById('climate-card');
+  const temp = document.getElementById('climate-temp');
+  const state = document.getElementById('climate-state');
+  const icon = document.getElementById('climate-icon');
+  if (!card) return;
+  if (isolatedRoom) {
+    const r = ROOMS[isolatedRoom];
+    const t = ROOM_TEMP[isolatedRoom] ?? averageTemp();
+    temp.textContent = t.toFixed(1).replace('.', ',') + '°';
+    state.textContent = r.label;
+    if (icon && ROOM_ICON[isolatedRoom]) icon.innerHTML = ROOM_ICON[isolatedRoom];
+  } else {
+    const t = averageTemp();
+    temp.textContent = Math.round(t) + '°';
+    state.textContent = 'в квартире';
+    if (icon) icon.innerHTML = '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M24 12a4 4 0 0 1 4 4v13a6 6 0 1 1-8 0V16a4 4 0 0 1 4-4Z"/><path d="M24 22v9"/></svg>';
+  }
+}
+
+/* --- верхние кнопки комнаты --- */
+function updateRoomChrome() {
+  const topLeft = document.querySelector('.top-left');
+  const actions = document.getElementById('room-actions');
+  const allOff = document.getElementById('btn-all-off');
+  const zoomed = !!isolatedRoom;
+
+  if (topLeft) topLeft.classList.toggle('zoomed', zoomed);
+  if (actions) actions.hidden = !zoomed;
+  if (allOff) allOff.hidden = zoomed;
+
+  const btnT = document.getElementById('btn-room-track');
+  const btnL = document.getElementById('btn-room-led');
+  if (zoomed) {
+    const kt = roomLightKey(isolatedRoom, 'track');
+    const kl = roomLightKey(isolatedRoom, 'led');
+    if (btnT) {
+      btnT.hidden = !kt;
+      if (kt) btnT.classList.toggle('active', !!lightState['track' + kt[0].toUpperCase() + kt.slice(1)]);
+    }
+    if (btnL) {
+      btnL.hidden = !kl;
+      if (kl) btnL.classList.toggle('active', !!lightState['led' + kl[0].toUpperCase() + kl.slice(1)]);
+    }
+  }
+
+  buildCallouts();
+  updateClimateCard();
+}
+
+/* --- карточка устройства --- */
+let sheetOpenFor = null;
+const DEVICE_STATE = new Map();
+
+function deviceState(dev) {
+  let st = DEVICE_STATE.get(dev);
+  if (!st) {
+    st = { on: !!dev.on, target: 24.5 };
+    DEVICE_STATE.set(dev, st);
+  }
+  return st;
+}
+
+function setDeviceOn(dev, on) {
+  const st = deviceState(dev);
+  st.on = on;
+  dev.on = on;
+  if (dev.overlay) dev.overlay.visible = on;
+  if (dev.mat && dev.kind === 'tv') dev.mat.opacity = on ? 0.95 : 0;
+  console.log('[device]', dev.entity || dev.mesh.name, on ? 'ON' : 'OFF');
+  renderSheet();
+  buildCallouts();
+}
+
+function stepTarget(delta) {
+  if (!sheetOpenFor) return;
+  const st = deviceState(sheetOpenFor);
+  st.target = Math.max(16, Math.min(30, Math.round((st.target + delta) * 2) / 2));
+  renderSheet();
+}
+
+function openDeviceSheet(dev) {
+  sheetOpenFor = dev;
+  const sheet = document.getElementById('device-sheet');
+  if (sheet) sheet.hidden = false;
+  renderSheet();
+}
+
+function closeSheet() {
+  sheetOpenFor = null;
+  const sheet = document.getElementById('device-sheet');
+  if (sheet) sheet.hidden = true;
+}
+
+function renderSheet() {
+  if (!sheetOpenFor) return;
+  const dev = sheetOpenFor;
+  const st = deviceState(dev);
+  const info = AC_INFO[dev.entity] || null;
+  const title = document.getElementById('sheet-title');
+  const icon = document.getElementById('sheet-icon');
+  const toggle = document.getElementById('sheet-toggle');
+  const target = document.getElementById('sheet-target');
+  const current = document.getElementById('sheet-current');
+
+  if (title) title.textContent = 'Кондиционер';
+  if (icon) icon.innerHTML = ICON.ac;
+  if (toggle) toggle.setAttribute('aria-checked', String(!!st.on));
+  if (target) target.textContent = st.target.toFixed(1).replace('.', ',') + '°';
+  if (current) {
+    const room = info ? ROOMS[info.room]?.label : '';
+    const cur = info ? info.current : ROOM_TEMP[isolatedRoom] ?? 24;
+    current.textContent = (room ? room + ' ' : '') + cur.toFixed(1).replace('.', ',') + '°';
+  }
+}
+
+/* --- выносные иконки --- */
+function calloutAnchor(type, ref) {
+  if (type === 'ac') {
+    const dev = devices.find((d) => d.entity === ref);
+    if (!dev) return null;
+    const b = new THREE.Box3().setFromObject(dev.mesh);
+    const c = b.getCenter(new THREE.Vector3());
+    return new THREE.Vector3(c.x, b.max.y + 0.25, c.z);
+  }
+  if (type === 'tv') {
+    const mesh = apartment.getObjectByName(ref);
+    if (!mesh) return null;
+    const b = new THREE.Box3().setFromObject(mesh);
+    const c = b.getCenter(new THREE.Vector3());
+    return new THREE.Vector3(c.x, b.max.y + 0.2, c.z);
+  }
+  if (type === 'curtain') {
+    const c = curtains.find((x) => x.entity === ref);
+    if (!c) return null;
+    const b = new THREE.Box3().setFromObject(c.obj);
+    const p = b.getCenter(new THREE.Vector3());
+    return new THREE.Vector3(p.x, b.max.y - 0.18, p.z);
+  }
+  if (type === 'floor') {
+    const r = ROOMS.bath;
+    if (!r) return null;
+    return new THREE.Vector3((r.x[0] + r.x[1]) / 2, 0.9, (r.z[0] + r.z[1]) / 2);
+  }
+  return null;
+}
+
+function calloutState(item) {
+  if (item.type === 'curtain') {
+    const c = curtains.find((x) => x.entity === item.entity);
+    return { on: c ? c.closed > 0.5 : false, label: c && c.closed > 0.5 ? 'закрыта' : 'открыта' };
+  }
+  if (item.type === 'floor') {
+    return { on: underfloorOn, label: underfloorOn ? 'греет' : 'выкл' };
+  }
+  if (item.type === 'ac') {
+    const dev = devices.find((d) => d.entity === item.entity);
+    if (!dev) return { on: false, label: '—' };
+    const st = deviceState(dev);
+    return { on: st.on, label: st.on ? 'охлаждает' : 'выкл' };
+  }
+  if (item.type === 'tv') {
+    const dev = devices.find((d) => d.mesh.name === item.mesh);
+    if (!dev) return { on: false, label: '—' };
+    return { on: !!dev.on, label: dev.on ? 'вкл' : 'выкл' };
+  }
+  return { on: false, label: '' };
+}
+
+function buildCallouts() {
+  const host = document.getElementById('callouts');
+  if (!host) return;
+  host.innerHTML = '';
+  calloutItems = [];
+  if (!isolatedRoom) return;
+  const list = ROOM_CALLOUTS[isolatedRoom] || [];
+  for (const item of list) {
+    const anchor = calloutAnchor(item.type, item.entity || item.mesh);
+    if (!anchor) continue;
+    const st = calloutState(item);
+    const el = document.createElement('button');
+    el.className = 'callout' + (st.on ? ' on' : '');
+    el.innerHTML = (ICON[item.type] || '') + '<span>' + st.label + '</span>';
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (item.type === 'curtain') {
+        const c = curtains.find((x) => x.entity === item.entity);
+        if (c) { toggleCurtain(c); buildCallouts(); }
+      } else if (item.type === 'floor') {
+        underfloorOn = !underfloorOn;
+        if (underfloor) underfloor.visible = underfloorOn;
+        console.log('[floor] underfloor_heating_bathroom', underfloorOn ? 'ON' : 'OFF');
+        buildCallouts();
+      } else if (item.type === 'ac') {
+        const dev = devices.find((d) => d.entity === item.entity);
+        if (dev) openDeviceSheet(dev);
+      } else if (item.type === 'tv') {
+        const dev = devices.find((d) => d.mesh.name === item.mesh);
+        if (dev) setDeviceOn(dev, !dev.on);
+      }
+    });
+    host.appendChild(el);
+    calloutItems.push({ anchor, el, label: item.type + ':' + (item.entity || item.mesh) });
+  }
+  updateCalloutPositions();
+}
+
+function updateCalloutPositions() {
+  if (!calloutItems.length) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  for (const c of calloutItems) {
+    const p = c.anchor.clone().project(camera);
+    if (p.z > 1) { c.el.style.display = 'none'; continue; }
+    c.el.style.display = '';
+    c.el.style.left = ((p.x * 0.5 + 0.5) * rect.width) + 'px';
+    c.el.style.top = ((-p.y * 0.5 + 0.5) * rect.height - 10) + 'px';
+  }
+}
+
+/* --- тёплый пол в ванной: красная змейка --- */
+function setupUnderfloor() {
+  const r = ROOMS.bath;
+  if (!r) return;
+  const pts = [];
+  let x0 = r.x[0] + 0.25;
+  let x1 = r.x[1] - 0.25;
+  const z0 = r.z[0] + 0.2;
+  const z1 = r.z[1] - 0.2;
+  const rows = 6;
+  for (let i = 0; i < rows; i++) {
+    const z = z0 + ((z1 - z0) * i) / (rows - 1);
+    if (i % 2 === 0) pts.push(new THREE.Vector3(x0, 0.028, z), new THREE.Vector3(x1, 0.028, z));
+    else pts.push(new THREE.Vector3(x1, 0.028, z), new THREE.Vector3(x0, 0.028, z));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+  const geo = new THREE.TubeGeometry(curve, 260, 0.018, 6, false);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xff4a3d, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false,
+  });
+  mat.name = 'Apt_underfloor';
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.visible = false;
+  mesh.raycast = () => {};
+  scene.add(mesh);
+  underfloor = mesh;
+  console.log('[floor] snake ready');
+}
+
 function initUI() {
-  const btnView = document.getElementById('btn-view');
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
   const btnLight = document.getElementById('btn-light');
+  const btnView = document.getElementById('btn-view');
   const btnHome = document.getElementById('btn-home');
   if (btnHome) btnHome.addEventListener('click', goHome);
-  const hint = document.querySelector('.hint');
-
-  // temporary switches for the LED coves and the GU10 track lights
-  const LIGHT_BUTTONS = [
-    ['btn-led-living', 'led', 'living'],
-    ['btn-led-kids', 'led', 'kids'],
-    ['btn-led-kitchen', 'led', 'kitchen'],
-    ['btn-led-hall', 'led', 'hall'],
-    ['btn-track-living', 'track', 'living'],
-    ['btn-track-kids', 'track', 'kids'],
-    ['btn-track-corridor', 'track', 'corridor'],
-    ['btn-track-kitchen', 'track', 'kitchen'],
-    ['btn-track-bath', 'track', 'bath'],
-    ['btn-track-wc', 'track', 'wc'],
-    ['btn-track-balcony', 'track', 'balcony'],
-    ['btn-led-bath', 'led', 'bath'],
-    ['btn-led-wc', 'led', 'wc'],
-  ];
-  for (const [id, kind, room] of LIGHT_BUTTONS) {
-    const btn = document.getElementById(id);
-    if (!btn) continue;
-    // подсказка = сущность Home Assistant
-    const entity = haEntity(kind, room);
-    if (entity) btn.title = entity + (HA_INFO[entity] ? ' — ' + HA_INFO[entity] : '');
-    btn.addEventListener('click', () => {
-      const on = !lightState[kind + room[0].toUpperCase() + room.slice(1)];
-      setLight(kind, room, on);
-      btn.classList.toggle('active', on);
-    });
-  }
 
   if (btnView) btnView.addEventListener('click', toggleView);
   updateViewButton();
+
   setIcon(btnWalls, 'walls');
+  setIcon(btnRotate, 'rotate');
   btnWalls.title = 'Показать/скрыть стены';
-  // стартовое состояние: иконка света и фон под текущий режим
+  btnRotate.title = 'Автовращение';
+
   applyLighting(lightingMode);
 
   btnWalls.addEventListener('click', () => {
@@ -2627,10 +2927,12 @@ function initUI() {
     btnWalls.classList.toggle('active', cutaway);
   });
 
-  btnRotate.addEventListener('click', () => {
-    controls.autoRotate = !controls.autoRotate;
-    btnRotate.classList.toggle('active', controls.autoRotate);
-  });
+  if (btnRotate) {
+    btnRotate.addEventListener('click', () => {
+      controls.autoRotate = !controls.autoRotate;
+      btnRotate.classList.toggle('active', controls.autoRotate);
+    });
+  }
 
   if (btnLight) {
     btnLight.addEventListener('click', () => {
@@ -2640,17 +2942,41 @@ function initUI() {
     });
   }
 
+  // свет в изолированной комнате
+  const btnTrackRoom = document.getElementById('btn-room-track');
+  const btnLedRoom = document.getElementById('btn-room-led');
+  if (btnTrackRoom) btnTrackRoom.addEventListener('click', () => toggleRoomLight('track'));
+  if (btnLedRoom) btnLedRoom.addEventListener('click', () => toggleRoomLight('led'));
+
+  const btnAllOff = document.getElementById('btn-all-off');
+  if (btnAllOff) btnAllOff.addEventListener('click', allLightsOff);
+
+  // карточка устройства
+  const sheetToggle = document.getElementById('sheet-toggle');
+  const sheetMinus = document.getElementById('sheet-minus');
+  const sheetPlus = document.getElementById('sheet-plus');
+  if (sheetToggle) sheetToggle.addEventListener('click', () => {
+    if (!sheetOpenFor) return;
+    setDeviceOn(sheetOpenFor, !deviceState(sheetOpenFor).on);
+  });
+  if (sheetMinus) sheetMinus.addEventListener('click', () => stepTarget(-0.5));
+  if (sheetPlus) sheetPlus.addEventListener('click', () => stepTarget(0.5));
+
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (sheetOpenFor) closeSheet();
+      else if (isolatedRoom) restoreView();
+    }
     if (e.key === '1' && btnView) btnView.click();
     if (e.key === '3') btnWalls.click();
-    if (e.key === '4') btnRotate.click();
+    if (e.key === '4' && btnRotate) btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
     if (e.key === 'c' || e.key === 'C' || e.key === 'с' || e.key === 'С') logCamera();
   });
 
-  setTimeout(() => hint.classList.add('fade'), 9000);
-
   setupSelection();
+  updateClimateCard();
+  updateRoomChrome();
 
   window.__viewer = {
     scene,
@@ -2665,6 +2991,7 @@ function initUI() {
     apartment,
     selection: null,
     selectById: (id) => selectMesh(apartment.getObjectByName(id)),
+    selectAt: (x, y) => { const h = pickAt(x, y); selectMesh(h ? h.object : null, h ? h.point : null); },
     deselect,
     lamps: lampStates,
     toggleLamp,
@@ -2689,6 +3016,9 @@ function initUI() {
     ha: { lights: HA_LIGHTS, devices: HA_DEVICES, info: HA_INFO },
     curtains,
     toggleCurtain,
+    roomTemps: ROOM_TEMP,
+    setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
+    callouts: () => calloutItems.map((c) => c.label),
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
@@ -2810,6 +3140,7 @@ function render() {
   const dtSec = Math.min(0.1, (nowMs - (deviceClock || nowMs)) / 1000);
   updateDevices(dtSec, nowMs / 1000);
   updateCurtains(dtSec);
+  updateCalloutPositions();
   deviceClock = nowMs;
 
   if (activeTween) {

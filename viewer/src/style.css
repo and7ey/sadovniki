@@ -341,3 +341,169 @@ body.day .selected code { background: rgba(255, 255, 255, 0.85); }
 }
 
 .home-btn svg { width: 24px; height: 24px; }
+
+/* --- верхний левый столбец плашек --- */
+.top-left {
+  position: absolute;
+  left: clamp(16px, 3vw, 34px);
+  top: clamp(16px, 3vw, 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.top-left .weather { pointer-events: auto; }
+
+.weather.climate { transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease; }
+
+.top-left.zoomed #weather { opacity: 0; transform: translateY(-8px) scale(0.96); pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease; }
+.top-left.zoomed #climate-card { transform: translateY(-78px); }
+
+/* --- большие квадратные кнопки справа сверху --- */
+.room-actions {
+  position: absolute;
+  right: clamp(16px, 3vw, 34px);
+  top: clamp(16px, 3vw, 34px);
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.big-square {
+  width: 78px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 22px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  color: var(--ink-soft);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.big-square svg { width: 34px; height: 34px; }
+.big-square:hover { color: var(--ink); transform: translateY(-1px); }
+.big-square.active { color: #ffcf8a; box-shadow: var(--shadow), inset 0 0 0 1.5px rgba(255, 207, 138, 0.5); }
+
+.all-off { position: absolute; right: clamp(16px, 3vw, 34px); top: clamp(16px, 3vw, 34px); }
+
+/* --- выносные иконки устройств --- */
+.callouts { position: absolute; inset: 0; pointer-events: none; }
+
+.callout {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: rgba(12, 18, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px) saturate(1.3);
+  color: #dfe8f5;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.callout:hover { transform: translate(-50%, -100%) scale(1.04); border-color: rgba(255, 255, 255, 0.35); }
+.callout svg { width: 16px; height: 16px; }
+.callout.on { color: #ffd79a; border-color: rgba(255, 207, 138, 0.45); }
+.callout::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* --- карточка устройства --- */
+.sheet {
+  position: absolute;
+  right: clamp(16px, 3vw, 34px);
+  top: 112px;
+  width: 300px;
+  padding: 16px 18px 18px;
+  border-radius: 22px;
+  background: rgba(14, 20, 33, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(22px) saturate(1.3);
+  color: #e8eefb;
+  pointer-events: auto;
+}
+
+.sheet-head { display: flex; align-items: center; gap: 10px; }
+.sheet-icon { display: grid; place-items: center; width: 24px; height: 24px; opacity: 0.85; }
+.sheet-icon svg { width: 22px; height: 22px; }
+.sheet-title { flex: 1; font-size: 15px; font-weight: 600; }
+
+.switch {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #eaf1ff;
+  transition: transform 0.2s ease;
+}
+
+.switch[aria-checked="true"] { background: rgba(255, 190, 100, 0.75); }
+.switch[aria-checked="true"] span { transform: translateX(20px); }
+
+.sheet-body { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+
+.round {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #eaf1ff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.round:hover { background: rgba(255, 255, 255, 0.14); }
+
+.sheet-value { text-align: center; flex: 1; }
+.sheet-target { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.sheet-current { font-size: 12px; opacity: 0.62; margin-top: 4px; }
+
+body.day .climate, body.day .big-square, body.day .callout {
+  background: rgba(255, 255, 255, 0.78);
+  color: #34435a;
+  border-color: rgba(255, 255, 255, 0.9);
+}
+body.day .callout { background: rgba(255, 255, 255, 0.86); color: #2c3b52; }
+body.day .sheet { background: rgba(255, 255, 255, 0.9); color: #22304a; border-color: rgba(20, 40, 70, 0.08); }
+body.day .switch { background: rgba(20, 40, 70, 0.14); }
+body.day .round { background: rgba(20, 40, 70, 0.06); color: #22304a; border-color: rgba(20, 40, 70, 0.12); }
