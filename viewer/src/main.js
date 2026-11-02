@@ -34,7 +34,7 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOW_POWER ? 1.25 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 // тени нужны и на телефоне, иначе свет проходит сквозь стены;
 // там они дешевле: PCF вместо PCFSoft и маленькие карты
@@ -126,13 +126,13 @@ const LIGHT_PRESETS = {
   },
   evening: {
     label: 'Вечер',
-    exposure: 0.9,
-    env: 0.16,
-    hemi: [0x59405c, 0x120b10, 0.34],
-    key: [0xffb072, 0.5],
-    fill: [0x7a5570, 0.28],
-    rim: [0xffc18a, 0.22],
-    bg: ['#1b1220', '#2d1b2b', '#120a12'],
+    exposure: 1.0,
+    env: 0.10,
+    hemi: [0x33405a, 0x0a0d14, 0.34],
+    key: [0xffc9a0, 0.38],
+    fill: [0x3d4a63, 0.18],
+    rim: [0xffb877, 0.16],
+    bg: ['#1c2027', '#262b33', '#12151a'],
   },
 };
 
@@ -2289,7 +2289,7 @@ function updateCurtains(dt) {
 /* ------------------------------------------------------------------ *
  *  Double click a room: isolate it, double click again to come back
  * ------------------------------------------------------------------ */
-const DEFAULT_VIEW = { pos: [1.48, 20.56, -10.1], target: [-0.26, 0.78, 0.55] };
+const DEFAULT_VIEW = { pos: [10.4, 29.3, 16.0], target: [0.33, 0.9, 0.15] };
 
 const ROOMS = {
   kids: {
@@ -3031,6 +3031,13 @@ function setupUnderfloor() {
   console.log('[floor] snake ready');
 }
 
+// стартовый вид как в архитектурном рендере: вечер, весь тёплый свет включён
+function startEvening() {
+  applyLighting('evening');
+  for (const room of Object.keys(LED_RUNS)) setLight('led', room, true);
+  for (const room of Object.keys(trackFixtures)) setLight('track', room, true);
+}
+
 function initUI() {
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
@@ -3101,6 +3108,8 @@ function initUI() {
     if (e.key === '5' && btnLight) btnLight.click();
     if (e.key === 'c' || e.key === 'C' || e.key === 'с' || e.key === 'С') logCamera();
   });
+
+  startEvening();
 
   setupSelection();
   updateClimateCard();
