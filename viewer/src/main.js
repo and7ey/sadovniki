@@ -3242,6 +3242,19 @@ function initUI() {
       console.log('[vacuum] position', +x.toFixed(2), +z.toFixed(2));
       return [x, z];
     },
+    setVacuumVisible: (on) => {
+      if (vacuum) vacuum.visible = !!on;
+      return !!on;
+    },
+    vacuumToRoom: (roomId) => {
+      if (!vacuum) return null;
+      const r = ROOMS[roomId];
+      if (!r) return null;
+      const x = (r.x[0] + r.x[1]) / 2;
+      const z = (r.z[0] + r.z[1]) / 2;
+      vacuum.position.set(x, 0, z);
+      return [x, z];
+    },
     setVacuumActive: (on) => {
       if (vacuumLed) vacuumLed.opacity = on ? 0.9 : 0.15;
       vacuum.visible = on !== false;

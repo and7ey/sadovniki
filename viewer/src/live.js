@@ -96,6 +96,36 @@ function syncWeather(viewer, states) {
 
 const AVG_TEMP_ENTITY = "sensor.apartment_average_temperature";
 
+// пылесос: показываем только когда он реально убирается
+const VACUUM_ENTITY = "vacuum.roborock_s7";
+const VACUUM_ROOM_ENTITY = "sensor.roborock_s7_current_room";
+const VACUUM_ACTIVE = new Set(["cleaning", "returning", "paused", "spot_cleaning", "zone_cleaning", "segment_cleaning"]);
+const ROOM_BY_NAME = {
+  "Гостиная": "living",
+  "Спальня": "bedroom",
+  "Детская": "kids",
+  "Кухня": "kitchen",
+  "Ванная": "bath",
+  "Туалет": "wc",
+  "Санузел": "wc",
+  "Прихожая": "hall",
+  "Коридор": "hall",
+  "Гардероб": "bedroom",
+};
+
+function syncVacuum(viewer, states) {
+  const v = states[VACUUM_ENTITY];
+  if (!v) return;
+  const active = VACUUM_ACTIVE.has(v.state);
+  if (viewer.setVacuumVisible) viewer.setVacuumVisible(active);
+  if (!active) return;
+  const room = states[VACUUM_ROOM_ENTITY];
+  if (room && viewer.vacuumToRoom) {
+    const id = ROOM_BY_NAME[room.state];
+    if (id) viewer.vacuumToRoom(id);
+  }
+}
+
 function syncTemps(viewer, states) {
   const avg = states[AVG_TEMP_ENTITY];
   if (avg) {
@@ -260,6 +290,7 @@ export async function startLive() {
         applyStates(viewer, states);
         syncTemps(viewer, states);
         syncWeather(viewer, states);
+        syncVacuum(viewer, states);
         setInterval(() => { syncTemps(viewer, states); syncWeather(viewer, states); }, 60000);
         return;
       }
@@ -269,6 +300,7 @@ export async function startLive() {
         window.__live.last = d.entity_id + '=' + d.new_state.state;
         applyStates(viewer, states);
         if (d.entity_id === WEATHER_ENTITY) syncWeather(viewer, states);
+        if (d.entity_id === VACUUM_ENTITY || d.entity_id === VACUUM_ROOM_ENTITY) syncVacuum(viewer, states);
         syncTemps(viewer, states);
       }
     });
