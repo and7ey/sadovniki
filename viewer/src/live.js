@@ -134,8 +134,11 @@ function mapToWorld(x, y) {
   if (!cal) return;
   const rad = (cal.rot || 0) * Math.PI / 180;
   const c = Math.cos(rad), s2 = Math.sin(rad);
-  return [cal.ox + (x * c + y * s2) * cal.scale, cal.oz + (-x * s2 + y * c) * cal.scale];
+  const mx = cal.mirrorX ? -x : x;
+  return [cal.ox + (mx * c + y * s2) * cal.scale, cal.oz + (-mx * s2 + y * c) * cal.scale];
 }
+
+window.__mapToWorld = mapToWorld;   // проверка калибровки из консоли
 
 function requestPosition() {
   if (!socket || socket.readyState !== 1) return;
