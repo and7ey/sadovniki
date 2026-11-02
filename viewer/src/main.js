@@ -1542,6 +1542,7 @@ loader.load(
     setupCurtains();
     removeJunk();
     setupUnderfloor();
+    buildVacuum();
 
     loaderEl.classList.add('done');
     setTimeout(() => loaderEl.remove(), 900);
@@ -3039,6 +3040,72 @@ function startEvening() {
   for (const room of Object.keys(trackFixtures)) setLight('track', room, true);
 }
 
+
+/* ------------------------------------------------------------------ *
+ *  Пылесос Roborock S7 — простая модель в центре гостиной
+ *  (позже будем двигать по реальным координатам из Home Assistant)
+ * ------------------------------------------------------------------ */
+let vacuum = null;
+let vacuumLed = null;
+const VACUUM_HOME = { x: 4.28, z: -1.13 };
+
+function buildVacuum() {
+  const g = new THREE.Group();
+  g.name = 'RoborockS7';
+  g.position.set(VACUUM_HOME.x, 0, VACUUM_HOME.z);
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.45, metalness: 0.25 });
+  bodyMat.name = 'Apt_vacuum_body';
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, roughness: 0.35, metalness: 0.5 });
+  rimMat.name = 'Apt_vacuum_rim';
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.172, 0.082, 40), bodyMat);
+  body.position.y = 0.041;
+  body.castShadow = false;
+  body.receiveShadow = true;
+  g.add(body);
+
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.173, 0.007, 8, 44), rimMat);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.078;
+  g.add(rim);
+
+  // лидарный «стакан»
+  const lidarBase = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.058, 0.016, 28), rimMat);
+  lidarBase.position.set(-0.055, 0.088, 0);
+  g.add(lidarBase);
+  const lidar = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.05, 0.018, 28), bodyMat);
+  lidar.position.set(-0.055, 0.104, 0);
+  g.add(lidar);
+
+  // бампер спереди
+  const bumper = new THREE.Mesh(new THREE.CylinderGeometry(0.177, 0.177, 0.03, 40, 1, true, -0.9, 1.8), rimMat);
+  bumper.position.y = 0.032;
+  g.add(bumper);
+
+  // мигающая зелёная полоска
+  const ledMat = new THREE.MeshBasicMaterial({
+    color: 0x39e07a, transparent: true, opacity: 0.9, toneMapped: false,
+  });
+  ledMat.name = 'Apt_vacuum_led';
+  const led = new THREE.Mesh(new THREE.TorusGeometry(0.1805, 0.005, 6, 64), ledMat);
+  led.rotation.x = Math.PI / 2;
+  led.position.y = 0.062;
+  g.add(led);
+  vacuumLed = ledMat;
+
+  scene.add(g);
+  vacuum = g;
+  console.log('[vacuum] Roborock S7 at', g.position.x.toFixed(2), g.position.z.toFixed(2));
+  return g;
+}
+
+function updateVacuum(t) {
+  if (!vacuumLed) return;
+  // мягкое мигание: 0.25 … 1.0
+  vacuumLed.opacity = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(t * 3.4));
+}
+
 function initUI() {
   const btnWalls = document.getElementById('btn-walls');
   const btnRotate = document.getElementById('btn-rotate');
@@ -3154,6 +3221,19 @@ function initUI() {
     ha: { lights: HA_LIGHTS, devices: HA_DEVICES, info: HA_INFO },
     curtains,
     toggleCurtain,
+    vacuum: () => vacuum,
+    setVacuumPosition: (x, z) => {
+      if (!vacuum) return null;
+      vacuum.position.x = x;
+      vacuum.position.z = z;
+      console.log('[vacuum] position', +x.toFixed(2), +z.toFixed(2));
+      return [x, z];
+    },
+    setVacuumActive: (on) => {
+      if (vacuumLed) vacuumLed.opacity = on ? 0.9 : 0.15;
+      vacuum.visible = on !== false;
+      return on;
+    },
     roomTemps: ROOM_TEMP,
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
@@ -3284,6 +3364,7 @@ function render() {
     underfloor.material.map.offset.y = (nowMs / 1400) % 1;
   }
   if (sheetOpenFor) positionSheet();
+  updateVacuum(nowMs / 1000);
   deviceClock = nowMs;
 
   if (activeTween) {
