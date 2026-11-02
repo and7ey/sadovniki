@@ -51,6 +51,64 @@ async function refreshTokens(tokens) {
   return next;
 }
 
+// уличная погода и температуры по комнатам
+const WEATHER_ENTITY = "weather.yandex_pogoda";
+const TEMP_SENSORS = {
+  living: ["sensor.thermostat_hall_1_local_temperature", "sensor.thermostat_hall_2_local_temperature"],
+  bedroom: ["sensor.thermostat_bedroom_local_temperature"],
+  kitchen: ["sensor.thermostat_kitchen_local_temperature"],
+  kids: ["sensor.thermostat_nursery_local_temperature"],
+  bath: ["sensor.ble_temperature_mi_meteo_bathroom"],
+  balcony: ["sensor.ble_temperature_mi_meteo_balcony"],
+  hall: ["sensor.meteo_hall_temperature"],
+};
+
+const WEATHER_ICON = {
+  sunny: ["sunny", "Ясно"],
+  clear: ["sunny", "Ясно"],
+  "clear-night": ["sunny", "Ясно"],
+  partlycloudy: ["partly", "Малооблачно"],
+  cloudy: ["cloudy", "Облачно"],
+  fog: ["cloudy", "Туман"],
+  rainy: ["rain", "Дождь"],
+  pouring: ["rain", "Ливень"],
+  lightning: ["rain", "Гроза"],
+  "lightning-rainy": ["rain", "Гроза"],
+  snowy: ["rain", "Снег"],
+  "snowy-rainy": ["rain", "Мокрый снег"],
+  hail: ["rain", "Град"],
+  windy: ["partly", "Ветер"],
+  exceptional: ["cloudy", "—"],
+};
+
+function num(v) {
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function syncWeather(viewer, states) {
+  const w = states[WEATHER_ENTITY];
+  if (!w) return;
+  const meta = WEATHER_ICON[w.state] || ["cloudy", ""];
+  const temp = w.attributes && w.attributes.temperature;
+  viewer.weather({ temp, state: meta[1] || w.state, icon: meta[0] });
+}
+
+function syncTemps(viewer, states) {
+  for (const [room, sensors] of Object.entries(TEMP_SENSORS)) {
+    const vals = [];
+    for (const e of sensors) {
+      const s = states[e];
+      if (!s) continue;
+      const v = num(s.state);
+      if (v !== null) vals.push(v);
+    }
+    if (!vals.length) continue;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    viewer.setRoomTemp(room, Math.round(avg * 10) / 10);
+  }
+}
+
 function stateOf(states, entity) {
   const s = states[entity];
   return s ? s.state : undefined;
@@ -99,6 +157,32 @@ function waitViewer() {
   });
 }
 
+let socket = null;
+let msgId = 10;
+
+function send(payload) {
+  if (!socket || socket.readyState !== 1) return false;
+  socket.send(JSON.stringify(payload));
+  return true;
+}
+
+// доступно сцене: управление реальными реле
+window.__ha = {
+  connected: false,
+  toggle(entity, on) {
+    const domain = entity.split(".")[0];
+    const ok = send({
+      id: msgId++,
+      type: "call_service",
+      domain,
+      service: on ? "turn_on" : "turn_off",
+      target: { entity_id: entity },
+    });
+    console.info("[live] ->", entity, on ? "on" : "off", ok ? "" : "(нет соединения)");
+    return ok;
+  },
+};
+
 export async function startLive() {
   const viewer = await waitViewer();
   if (!viewer) {
@@ -120,6 +204,8 @@ export async function startLive() {
 
   const connect = () => {
     const ws = new WebSocket(wsUrl);
+    socket = ws;
+    window.__ha.connected = false;
 
     ws.addEventListener("message", (ev) => {
       let msg;
@@ -136,15 +222,23 @@ export async function startLive() {
       }
       if (msg.type === "auth_ok") {
         window.__live.connected = true;
+        window.__ha.connected = true;
         console.info("[live] подключено к Home Assistant");
         ws.send(JSON.stringify({ id: 1, type: "get_states" }));
         ws.send(JSON.stringify({ id: 2, type: "subscribe_events", event_type: "state_changed" }));
+        return;
+      }
+      if (msg.type === "result" && msg.id >= 10) {
+        window.__ha.lastResult = { id: msg.id, success: !!msg.success, error: msg.error || null };
         return;
       }
       if (msg.type === "result" && msg.id === 1 && Array.isArray(msg.result)) {
         for (const s of msg.result) states[s.entity_id] = s;
         window.__live.states = msg.result.length;
         applyStates(viewer, states);
+        syncTemps(viewer, states);
+        syncWeather(viewer, states);
+        setInterval(() => { syncTemps(viewer, states); syncWeather(viewer, states); }, 60000);
         return;
       }
       if (msg.type === "event" && msg.event && msg.event.event_type === "state_changed") {
@@ -152,10 +246,13 @@ export async function startLive() {
         states[d.entity_id] = d.new_state;
         window.__live.last = d.entity_id + '=' + d.new_state.state;
         applyStates(viewer, states);
+        if (d.entity_id === WEATHER_ENTITY) syncWeather(viewer, states);
+        syncTemps(viewer, states);
       }
     });
 
     ws.addEventListener("close", () => {
+      window.__ha.connected = false;
       setTimeout(async () => {
         tokens = (await refreshTokens(tokens)) || tokens;
         connect();

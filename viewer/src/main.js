@@ -2670,6 +2670,9 @@ function toggleRoomLight(kind) {
   const stateKey = kind + key[0].toUpperCase() + key.slice(1);
   const on = !lightState[stateKey];
   setLight(kind, key, on);
+  // управление реальным реле, если страница подключена к Home Assistant
+  const entity = haEntity(kind, key);
+  if (entity && window.__ha && window.__ha.connected) window.__ha.toggle(entity, on);
   updateRoomButtons();
 }
 
