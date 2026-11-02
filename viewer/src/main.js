@@ -2431,7 +2431,6 @@ function goHome() {
 function restoreView() {
   renderer.clippingPlanes = [];
   isolatedRoom = null;
-  setActiveRadiator(null);
   closeSheet();
   updateRoomChrome();
   if (savedView) {
@@ -2601,11 +2600,11 @@ const ICON = {
 };
 
 const RADIATORS = {
-  'climate.thermostat_hall_1': { room: 'living', anchor: [2.90, 1.50, -2.86], current: 23.0 },
-  'climate.thermostat_hall_2': { room: 'living', anchor: [7.10, 1.50, -2.00], current: 23.2 },
-  'climate.thermostat_bedroom': { room: 'bedroom', anchor: [3.17, 1.50, 0.96], current: 22.5 },
-  'climate.thermostat_nursery': { room: 'kids', anchor: [-2.86, 1.50, -1.94], current: 22.4 },
-  'climate.thermostat_kitchen': { room: 'kitchen', anchor: [-3.12, 1.50, -2.09], current: 23.6 },
+  'climate.thermostat_hall_1': { room: 'living', anchor: [2.75, 0.43, -2.86], current: 23.0 },
+  'climate.thermostat_hall_2': { room: 'living', anchor: [6.00, 1.54, 0.45], current: 23.2 },
+  'climate.thermostat_bedroom': { room: 'bedroom', anchor: [5.52, 0.55, 2.61], current: 22.5 },
+  'climate.thermostat_nursery': { room: 'kids', anchor: [-1.06, 0.45, -2.84], current: 22.4 },
+  'climate.thermostat_kitchen': { room: 'kitchen', anchor: [-4.27, 1.95, -2.89], current: 23.6 },
 };
 
 const radiatorDevices = new Map();
@@ -2653,45 +2652,6 @@ const ROOM_CALLOUTS = {
 };
 
 let calloutItems = [];
-let itemDrag = null;
-let activeRadiator = null;
-let dragStartY = 0;
-
-const RADIATOR_STEP = 0.05;
-
-// печатаем в понятных осях: x и y — по полу, h — высота
-function fmtAnchor(a) {
-  return 'x ' + a[0].toFixed(2) + ', y ' + a[2].toFixed(2) + ', h ' + a[1].toFixed(2);
-}
-
-function setActiveRadiator(entity) {
-  activeRadiator = entity;
-  const panel = document.getElementById('nudge');
-  if (panel) panel.hidden = !entity;
-  updateNudgeLabel();
-}
-
-function updateNudgeLabel() {
-  const el = document.getElementById('nudge-pos');
-  if (!el) return;
-  if (!activeRadiator) { el.textContent = '—'; return; }
-  const a = (RADIATORS[activeRadiator] || {}).anchor || [0, 0, 0];
-  el.textContent = fmtAnchor(a);
-}
-
-function nudgeRadiator(axis, dir) {
-  if (!activeRadiator) return;
-  const info = RADIATORS[activeRadiator];
-  if (!info) return;
-  const i = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-  const lo = axis === 'y' ? 0.04 : -8;
-  const hi = axis === 'y' ? 2.95 : 8;
-  info.anchor[i] = +Math.max(lo, Math.min(hi, info.anchor[i] + dir * RADIATOR_STEP)).toFixed(2);
-  radiatorDevices.delete(activeRadiator);
-  console.log('[radiator]', activeRadiator, fmtAnchor(info.anchor));
-  updateNudgeLabel();
-  buildCallouts();
-}
 let underfloor = null;
 let underfloorOn = false;
 
@@ -2969,7 +2929,6 @@ function buildCallouts() {
     el.innerHTML = (ICON[item.type] || '') + '<i class="dot"></i>';
     el.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      if (el.dataset.dragged === '1') { delete el.dataset.dragged; return; }
       if (item.type === 'curtain') {
         const c = curtains.find((x) => x.entity === item.entity);
         if (c) { toggleCurtain(c); refreshCalloutStates(); }
@@ -2982,7 +2941,6 @@ function buildCallouts() {
         const dev = devices.find((d) => d.entity === item.entity);
         if (dev) openDeviceSheet(dev);
       } else if (item.type === 'radiator') {
-        setActiveRadiator(item.entity);
         openDeviceSheet(radiatorDevice(item.entity));
       } else if (item.type === 'tv') {
         const dev = devices.find((d) => d.mesh.name === item.mesh);
@@ -2990,59 +2948,6 @@ function buildCallouts() {
       }
       updateCalloutPositions();
     });
-    // батареи можно тащить мышкой: на отпускании позиция уходит в консоль
-    if (item.type === 'radiator') {
-      el.style.cursor = 'grab';
-      el.title = (el.title || '') + ' — перетащите';
-      el.addEventListener('pointerdown', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        itemDrag = { entry: null, entity: item.entity, moved: false };
-        dragStartY = ev.clientY;
-        try { el.setPointerCapture(ev.pointerId); } catch (err) { /* синтетические события */ }
-        const rect = renderer.domElement.getBoundingClientRect();
-        itemDrag.offsetX = rect.left;
-        itemDrag.offsetY = rect.top;
-        el.classList.add('dragging');
-        controls.enabled = false;
-      });
-      el.addEventListener('pointermove', (ev) => {
-        if (!itemDrag || itemDrag.entity !== item.entity) return;
-        itemDrag.moved = true;
-        el.style.left = (ev.clientX - itemDrag.offsetX) + 'px';
-        el.style.top = (ev.clientY - itemDrag.offsetY) + 'px';
-      });
-      const finish = (ev) => {
-        if (!itemDrag || itemDrag.entity !== item.entity) return;
-        const dragged = itemDrag.moved;
-        itemDrag = null;
-        controls.enabled = true;
-        el.classList.remove('dragging');
-        if (!dragged) { updateCalloutPositions(); return; }
-        el.dataset.dragged = '1';
-        const hit = pickAt(ev.clientX, ev.clientY);
-        const prev = (RADIATORS[item.entity] || {}).anchor || [0, 1.5, 0];
-        if (hit && hit.point) {
-          let a;
-          if (viewMode === 'top') {
-            // сверху — по полу: x и z (у пользователя это x и y)
-            a = [+hit.point.x.toFixed(2), prev[1], +hit.point.z.toFixed(2)];
-          } else {
-            // в 3D — только высота (у пользователя это z)
-            const dy = (dragStartY - ev.clientY) * 0.006;
-            const ny = Math.max(0.04, Math.min(2.95, prev[1] + dy));
-            a = [prev[0], +ny.toFixed(2), prev[2]];
-          }
-          if (RADIATORS[item.entity]) RADIATORS[item.entity].anchor = a;
-          radiatorDevices.delete(item.entity);
-          console.log('[radiator]', item.entity, viewMode === 'top' ? '(по полу)' : '(по высоте)', fmtAnchor(a));
-        }
-        buildCallouts();
-      };
-      el.addEventListener('pointerup', finish);
-      el.addEventListener('pointercancel', finish);
-    }
-
     host.appendChild(el);
     calloutItems.push({
       anchor, el, item,
@@ -3070,7 +2975,6 @@ function updateCalloutPositions() {
   if (!calloutItems.length) return;
   const rect = renderer.domElement.getBoundingClientRect();
   for (const c of calloutItems) {
-    if (c.el.classList.contains('dragging')) continue;
     const p = c.anchor.clone().project(camera);
     if (p.z > 1) { c.el.style.display = 'none'; continue; }
     c.el.style.display = '';
@@ -3167,13 +3071,6 @@ function initUI() {
   }
 
   // свет в изолированной комнате
-  const nudge = document.getElementById('nudge');
-  if (nudge) {
-    nudge.querySelectorAll('button[data-axis]').forEach((b) => {
-      b.addEventListener('click', () => nudgeRadiator(b.dataset.axis, Number(b.dataset.dir)));
-    });
-  }
-
   const btnAllOff = document.getElementById('btn-all-off');
   if (btnAllOff) btnAllOff.addEventListener('click', allLightsOff);
 
@@ -3203,11 +3100,6 @@ function initUI() {
     if (e.key === '4' && btnRotate) btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
     if (e.key === 'c' || e.key === 'C' || e.key === 'с' || e.key === 'С') logCamera();
-    if (activeRadiator) {
-      const k = e.key.toLowerCase();
-      if (k === 'w') { nudgeRadiator('y', 1); e.preventDefault(); }
-      if (k === 's') { nudgeRadiator('y', -1); e.preventDefault(); }
-    }
   });
 
   setupSelection();
@@ -3255,17 +3147,6 @@ function initUI() {
     roomTemps: ROOM_TEMP,
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
-    nudgeRadiator,
-    setActiveRadiator,
-    setRadiatorAnchor: (entity, xyz) => {
-      const info = RADIATORS[entity];
-      if (!info) return null;
-      info.anchor = xyz.slice(0, 3);
-      radiatorDevices.delete(entity);
-      buildCallouts();
-      console.log('[radiator]', entity, fmtAnchor(info.anchor));
-      return info.anchor;
-    },
     enableSelection: (v) => { selectionEnabled = !!v; console.log('[select] mode', selectionEnabled ? 'on' : 'off'); return selectionEnabled; },
     listObjects: () => {
       const out = [];
