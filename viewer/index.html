@@ -48,13 +48,13 @@
 
     <div class="room-actions" id="room-actions" hidden>
       <button id="btn-room-track" class="big-square" title="Трек — включить/выключить">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 20h16" /><path d="M8 20V9l4-3 4 3v11" /><path d="M10.6 20v-4.4h2.8V20" />
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M6,1V3H9V6.4L4.11,4.38L1.43,10.84L6.97,13.14L11.94,16.82L13.79,17.59L17.62,8.35L15.77,7.58L11,6.87V3H14V1H6M21.81,6.29L19.5,7.25L20.26,9.1L22.57,8.14L21.81,6.29M19.78,13.57L19,15.42L21.79,16.57L22.55,14.72L19.78,13.57M16.19,18.93L14.34,19.69L15.3,22L17.15,21.23L16.19,18.93Z" />
         </svg>
       </button>
       <button id="btn-room-led" class="big-square" title="Лента — включить/выключить">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3.5 8.5h13L20.5 12l-4 3.5h-13Z" /><path d="M7 8.5v7M11 8.5v7M15 8.5v7" />
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M2.95 3L2 6.91L19.34 11.25L20.29 7.34L2.95 3M6.09 6.89L4.16 6.41L4.64 4.46L6.57 4.94L6.09 6.89M9.94 7.86L8 7.38L8.5 5.42L10.42 5.91L9.94 7.86M13.8 8.82L11.87 8.34L12.35 6.39L14.27 6.87L13.8 8.82M17.65 9.79L15.72 9.31L16.2 7.35L18.13 7.84L17.65 9.79M4.66 12.75L3.71 16.66L21.05 21L22 17.1L4.66 12.75M7.8 16.65L5.88 16.16L6.35 14.21L8.28 14.69L7.8 16.65M11.65 17.61L9.73 17.13L10.2 15.18L12.13 15.66L11.65 17.61M15.5 18.58L13.58 18.09L14.06 16.14L16 16.62L15.5 18.58M19.36 19.54L17.43 19.06L17.91 17.11L19.84 17.59L19.36 19.54M6.25 12.11L11 10.2L17.75 11.89L13 13.8L6.25 12.11Z" />
         </svg>
       </button>
     </div>
@@ -117,6 +117,6 @@
       if (t) t.textContent = 'Ошибка: ' + m;
     });
   </script>
-  <script type="module" src="./src/main.js?v=90"></script>
+  <script type="module" src="./src/main.js?v=91"></script>
 </body>
 </html>
