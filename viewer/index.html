@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=22" />
+  <link rel="stylesheet" href="./src/style.css?v=23" />
 </head>
 <body>
   <div id="app"></div>
@@ -59,6 +59,19 @@
       </button>
     </div>
 
+
+    <div id="nudge" class="nudge" hidden>
+      <div class="nudge-title">Батарея</div>
+      <div class="nudge-grid">
+        <button data-axis="x" data-dir="1" title="Вперёд по полу (x+)">↑</button>
+        <button data-axis="y" data-dir="1" title="Выше (W)">W</button>
+        <button data-axis="z" data-dir="-1" title="Влево по полу (y−)">←</button>
+        <button data-axis="z" data-dir="1" title="Вправо по полу (y+)">→</button>
+        <button data-axis="x" data-dir="-1" title="Назад по полу (x−)">↓</button>
+        <button data-axis="y" data-dir="-1" title="Ниже (S)">S</button>
+      </div>
+      <div class="nudge-hint" id="nudge-pos">—</div>
+    </div>
 
     <div id="callouts" class="callouts"></div>
 
@@ -117,6 +130,6 @@
       if (t) t.textContent = 'Ошибка: ' + m;
     });
   </script>
-  <script type="module" src="./src/main.js?v=86"></script>
+  <script type="module" src="./src/main.js?v=88"></script>
 </body>
 </html>

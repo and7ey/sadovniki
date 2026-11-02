@@ -2431,6 +2431,7 @@ function goHome() {
 function restoreView() {
   renderer.clippingPlanes = [];
   isolatedRoom = null;
+  setActiveRadiator(null);
   closeSheet();
   updateRoomChrome();
   if (savedView) {
@@ -2653,6 +2654,39 @@ const ROOM_CALLOUTS = {
 
 let calloutItems = [];
 let itemDrag = null;
+let activeRadiator = null;
+let dragStartY = 0;
+
+const RADIATOR_STEP = 0.05;
+
+function setActiveRadiator(entity) {
+  activeRadiator = entity;
+  const panel = document.getElementById('nudge');
+  if (panel) panel.hidden = !entity;
+  updateNudgeLabel();
+}
+
+function updateNudgeLabel() {
+  const el = document.getElementById('nudge-pos');
+  if (!el) return;
+  if (!activeRadiator) { el.textContent = '—'; return; }
+  const a = (RADIATORS[activeRadiator] || {}).anchor || [0, 0, 0];
+  el.textContent = a.map((v) => v.toFixed(2)).join(', ');
+}
+
+function nudgeRadiator(axis, dir) {
+  if (!activeRadiator) return;
+  const info = RADIATORS[activeRadiator];
+  if (!info) return;
+  const i = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+  const lo = axis === 'y' ? 0.04 : -8;
+  const hi = axis === 'y' ? 2.95 : 8;
+  info.anchor[i] = +Math.max(lo, Math.min(hi, info.anchor[i] + dir * RADIATOR_STEP)).toFixed(2);
+  radiatorDevices.delete(activeRadiator);
+  console.log('[radiator]', activeRadiator, 'anchor', info.anchor);
+  updateNudgeLabel();
+  buildCallouts();
+}
 let underfloor = null;
 let underfloorOn = false;
 
@@ -2943,6 +2977,7 @@ function buildCallouts() {
         const dev = devices.find((d) => d.entity === item.entity);
         if (dev) openDeviceSheet(dev);
       } else if (item.type === 'radiator') {
+        setActiveRadiator(item.entity);
         openDeviceSheet(radiatorDevice(item.entity));
       } else if (item.type === 'tv') {
         const dev = devices.find((d) => d.mesh.name === item.mesh);
@@ -2958,6 +2993,7 @@ function buildCallouts() {
         ev.preventDefault();
         ev.stopPropagation();
         itemDrag = { entry: null, entity: item.entity, moved: false };
+        dragStartY = ev.clientY;
         try { el.setPointerCapture(ev.pointerId); } catch (err) { /* синтетические события */ }
         const rect = renderer.domElement.getBoundingClientRect();
         itemDrag.offsetX = rect.left;
@@ -2984,11 +3020,13 @@ function buildCallouts() {
         if (hit && hit.point) {
           let a;
           if (viewMode === 'top') {
-            // сверху двигаем только по плоскости пола: x и z
+            // сверху — по полу: x и z (у пользователя это x и y)
             a = [+hit.point.x.toFixed(2), prev[1], +hit.point.z.toFixed(2)];
           } else {
-            // в 3D — только по глубине, высота и положение вдоль стены не меняются
-            a = [prev[0], prev[1], +hit.point.z.toFixed(2)];
+            // в 3D — только высота (у пользователя это z)
+            const dy = (dragStartY - ev.clientY) * 0.006;
+            const ny = Math.max(0.04, Math.min(2.95, prev[1] + dy));
+            a = [prev[0], +ny.toFixed(2), prev[2]];
           }
           if (RADIATORS[item.entity]) RADIATORS[item.entity].anchor = a;
           radiatorDevices.delete(item.entity);
@@ -3124,6 +3162,13 @@ function initUI() {
   }
 
   // свет в изолированной комнате
+  const nudge = document.getElementById('nudge');
+  if (nudge) {
+    nudge.querySelectorAll('button[data-axis]').forEach((b) => {
+      b.addEventListener('click', () => nudgeRadiator(b.dataset.axis, Number(b.dataset.dir)));
+    });
+  }
+
   const btnAllOff = document.getElementById('btn-all-off');
   if (btnAllOff) btnAllOff.addEventListener('click', allLightsOff);
 
@@ -3153,6 +3198,11 @@ function initUI() {
     if (e.key === '4' && btnRotate) btnRotate.click();
     if (e.key === '5' && btnLight) btnLight.click();
     if (e.key === 'c' || e.key === 'C' || e.key === 'с' || e.key === 'С') logCamera();
+    if (activeRadiator) {
+      const k = e.key.toLowerCase();
+      if (k === 'w') { nudgeRadiator('y', 1); e.preventDefault(); }
+      if (k === 's') { nudgeRadiator('y', -1); e.preventDefault(); }
+    }
   });
 
   setupSelection();
@@ -3200,6 +3250,8 @@ function initUI() {
     roomTemps: ROOM_TEMP,
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
+    nudgeRadiator,
+    setActiveRadiator,
     setRadiatorAnchor: (entity, xyz) => {
       const info = RADIATORS[entity];
       if (!info) return null;
