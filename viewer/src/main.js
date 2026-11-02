@@ -2980,11 +2980,19 @@ function buildCallouts() {
         if (!dragged) { updateCalloutPositions(); return; }
         el.dataset.dragged = '1';
         const hit = pickAt(ev.clientX, ev.clientY);
+        const prev = (RADIATORS[item.entity] || {}).anchor || [0, 1.5, 0];
         if (hit && hit.point) {
-          const a = [+hit.point.x.toFixed(2), +hit.point.y.toFixed(2), +hit.point.z.toFixed(2)];
+          let a;
+          if (viewMode === 'top') {
+            // сверху двигаем только по плоскости пола: x и z
+            a = [+hit.point.x.toFixed(2), prev[1], +hit.point.z.toFixed(2)];
+          } else {
+            // в 3D — только по глубине, высота и положение вдоль стены не меняются
+            a = [prev[0], prev[1], +hit.point.z.toFixed(2)];
+          }
           if (RADIATORS[item.entity]) RADIATORS[item.entity].anchor = a;
           radiatorDevices.delete(item.entity);
-          console.log('[radiator]', item.entity, 'anchor', a);
+          console.log('[radiator]', item.entity, viewMode === 'top' ? '(x,z)' : '(z)', a);
         }
         buildCallouts();
       };
