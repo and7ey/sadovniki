@@ -2692,7 +2692,10 @@ function updateRoomButtons() {
   }
 }
 
+const HA_ALL_OFF_SCRIPT = 'script.turn_off_apartment_lights';
+
 function allLightsOff() {
+  if (window.__ha && window.__ha.connected) window.__ha.runScript(HA_ALL_OFF_SCRIPT);
   for (const kind of ['led', 'track']) {
     for (const room of ['living', 'kids', 'kitchen', 'hall', 'bath', 'wc', 'corridor', 'balcony']) {
       const stateKey = kind + room[0].toUpperCase() + room.slice(1);
@@ -2708,6 +2711,13 @@ function averageTemp() {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
+let apartmentAverageOverride = null;
+
+function apartmentAverage() {
+  if (apartmentAverageOverride !== null) return apartmentAverageOverride;
+  return averageTemp();
+}
+
 function updateClimateCard() {
   const card = document.getElementById('climate-card');
   const temp = document.getElementById('climate-temp');
@@ -2721,7 +2731,7 @@ function updateClimateCard() {
     state.textContent = r.label;
     if (icon && ROOM_ICON[isolatedRoom]) icon.innerHTML = ROOM_ICON[isolatedRoom];
   } else {
-    const t = averageTemp();
+    const t = apartmentAverage();
     temp.textContent = Math.round(t) + '°';
     state.textContent = 'в квартире';
     if (icon) icon.innerHTML = '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M24 12a4 4 0 0 1 4 4v13a6 6 0 1 1-8 0V16a4 4 0 0 1 4-4Z"/><path d="M24 22v9"/></svg>';
@@ -3238,6 +3248,10 @@ function initUI() {
       return on;
     },
     roomTemps: ROOM_TEMP,
+    setApartmentAverage: (v) => {
+      apartmentAverageOverride = (v === null || v === undefined) ? null : Number(v);
+      updateClimateCard();
+    },
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
     enableSelection: (v) => { selectionEnabled = !!v; console.log('[select] mode', selectionEnabled ? 'on' : 'off'); return selectionEnabled; },

@@ -94,7 +94,14 @@ function syncWeather(viewer, states) {
   viewer.weather({ temp, state: meta[1] || w.state, icon: meta[0] });
 }
 
+const AVG_TEMP_ENTITY = "sensor.apartment_average_temperature";
+
 function syncTemps(viewer, states) {
+  const avg = states[AVG_TEMP_ENTITY];
+  if (avg) {
+    const v = num(avg.state);
+    if (v !== null && viewer.setApartmentAverage) viewer.setApartmentAverage(v);
+  }
   for (const [room, sensors] of Object.entries(TEMP_SENSORS)) {
     const vals = [];
     for (const e of sensors) {
@@ -169,6 +176,21 @@ function send(payload) {
 // доступно сцене: управление реальными реле
 window.__ha = {
   connected: false,
+  call(domain, service, entity, data) {
+    return send({
+      id: msgId++,
+      type: "call_service",
+      domain,
+      service,
+      service_data: data || {},
+      target: entity ? { entity_id: entity } : undefined,
+    });
+  },
+  runScript(entity) {
+    const ok = this.call("script", "turn_on", entity);
+    console.info("[live] script", entity, ok ? "" : "(нет соединения)");
+    return ok;
+  },
   toggle(entity, on) {
     const domain = entity.split(".")[0];
     const ok = send({
