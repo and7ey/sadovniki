@@ -1732,6 +1732,10 @@ function setupSelection() {
     const fixture = fixtureAt(hit.object);
     if (fixture) { startFixtureMove(fixture.room, fixture.index); return; }
     if (pendingMove) { moveFixtureTo(hit.point); return; }
+    if (selectionEnabled && hit.object) {
+      console.log('[select]', hit.object.name, hit.point ? hit.point.toArray().map((v) => +v.toFixed(2)) : '');
+      return;
+    }
     // выделение и одиночный зум по тапу убраны: комната открывается двойным
   });
 
@@ -2636,7 +2640,23 @@ function toggleRoomLight(kind) {
   const stateKey = kind + key[0].toUpperCase() + key.slice(1);
   const on = !lightState[stateKey];
   setLight(kind, key, on);
-  updateRoomChrome();
+  updateRoomButtons();
+}
+
+function updateRoomButtons() {
+  if (!isolatedRoom) return;
+  const btnT = document.getElementById('btn-room-track');
+  const btnL = document.getElementById('btn-room-led');
+  const kt = roomLightKey(isolatedRoom, 'track');
+  const kl = roomLightKey(isolatedRoom, 'led');
+  if (btnT) {
+    btnT.hidden = !kt;
+    if (kt) btnT.classList.toggle('active', !!lightState['track' + kt[0].toUpperCase() + kt.slice(1)]);
+  }
+  if (btnL) {
+    btnL.hidden = !kl;
+    if (kl) btnL.classList.toggle('active', !!lightState['led' + kl[0].toUpperCase() + kl.slice(1)]);
+  }
 }
 
 function allLightsOff() {
@@ -2679,8 +2699,8 @@ function updateClimateCard() {
 function updateRoomChrome() {
   const topLeft = document.querySelector('.top-left');
   const actions = document.getElementById('room-actions');
-  const allOff = document.getElementById('btn-all-off');
   const zoomed = !!isolatedRoom;
+  const allOff = document.getElementById('btn-all-off');
 
   if (topLeft) topLeft.classList.toggle('zoomed', zoomed);
   if (actions) actions.hidden = !zoomed;
@@ -2703,9 +2723,11 @@ function updateRoomChrome() {
 
   buildCallouts();
   updateClimateCard();
+  updateRoomButtons();
 }
 
 /* --- карточка устройства --- */
+let selectionEnabled = false;
 let sheetOpenFor = null;
 const DEVICE_STATE = new Map();
 
@@ -2726,7 +2748,7 @@ function setDeviceOn(dev, on) {
   if (dev.mat && dev.kind === 'tv') dev.mat.opacity = on ? 0.95 : 0;
   console.log('[device]', dev.entity || dev.mesh.name, on ? 'ON' : 'OFF');
   renderSheet();
-  buildCallouts();
+  refreshCalloutStates();
 }
 
 function stepTarget(delta) {
@@ -2741,12 +2763,34 @@ function openDeviceSheet(dev) {
   const sheet = document.getElementById('device-sheet');
   if (sheet) sheet.hidden = false;
   renderSheet();
+  positionSheet();
+  refreshCalloutStates();
+}
+
+// карточка встаёт рядом с кондиционером
+function positionSheet() {
+  const sheet = document.getElementById('device-sheet');
+  if (!sheet || !sheetOpenFor) return;
+  const item = calloutItems.find((c) => c.dev === sheetOpenFor);
+  if (!item) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const p = item.anchor.clone().project(camera);
+  const x = (p.x * 0.5 + 0.5) * rect.width;
+  const y = (-p.y * 0.5 + 0.5) * rect.height;
+  const w = sheet.offsetWidth || 300;
+  const h = sheet.offsetHeight || 150;
+  const left = Math.min(rect.width - w - 18, Math.max(18, x - w / 2));
+  const top = Math.min(rect.height - h - 18, Math.max(18, y - h - 70));
+  sheet.style.left = left + 'px';
+  sheet.style.top = top + 'px';
+  sheet.style.right = 'auto';
 }
 
 function closeSheet() {
   sheetOpenFor = null;
   const sheet = document.getElementById('device-sheet');
   if (sheet) sheet.hidden = true;
+  refreshCalloutStates();
 }
 
 function renderSheet() {
@@ -2837,17 +2881,18 @@ function buildCallouts() {
     const st = calloutState(item);
     const el = document.createElement('button');
     el.className = 'callout' + (st.on ? ' on' : '');
-    el.innerHTML = (ICON[item.type] || '') + '<span>' + st.label + '</span>';
+    el.title = st.label;
+    el.innerHTML = (ICON[item.type] || '') + '<i class="dot"></i>';
     el.addEventListener('click', (ev) => {
       ev.stopPropagation();
       if (item.type === 'curtain') {
         const c = curtains.find((x) => x.entity === item.entity);
-        if (c) { toggleCurtain(c); buildCallouts(); }
+        if (c) { toggleCurtain(c); refreshCalloutStates(); }
       } else if (item.type === 'floor') {
         underfloorOn = !underfloorOn;
         if (underfloor) underfloor.visible = underfloorOn;
         console.log('[floor] underfloor_heating_bathroom', underfloorOn ? 'ON' : 'OFF');
-        buildCallouts();
+        refreshCalloutStates();
       } else if (item.type === 'ac') {
         const dev = devices.find((d) => d.entity === item.entity);
         if (dev) openDeviceSheet(dev);
@@ -2855,11 +2900,24 @@ function buildCallouts() {
         const dev = devices.find((d) => d.mesh.name === item.mesh);
         if (dev) setDeviceOn(dev, !dev.on);
       }
+      updateCalloutPositions();
     });
     host.appendChild(el);
-    calloutItems.push({ anchor, el, label: item.type + ':' + (item.entity || item.mesh) });
+    calloutItems.push({ anchor, el, item, dev: item.type === 'ac' || item.type === 'tv'
+      ? devices.find((d) => (item.entity ? d.entity === item.entity : d.mesh.name === item.mesh))
+      : null, label: item.type + ':' + (item.entity || item.mesh) });
   }
   updateCalloutPositions();
+}
+
+// только статус, без пересборки и сдвига
+function refreshCalloutStates() {
+  for (const c of calloutItems) {
+    const st = calloutState(c.item);
+    c.el.classList.toggle('on', st.on);
+    c.el.title = st.label;
+    c.el.style.opacity = (sheetOpenFor && c.dev === sheetOpenFor) ? '0' : '';
+  }
 }
 
 function updateCalloutPositions() {
@@ -2890,9 +2948,28 @@ function setupUnderfloor() {
     else pts.push(new THREE.Vector3(x1, 0.028, z), new THREE.Vector3(x0, 0.028, z));
   }
   const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
-  const geo = new THREE.TubeGeometry(curve, 260, 0.018, 6, false);
+  const geo = new THREE.TubeGeometry(curve, 300, 0.016, 6, false);
+
+  // бегущие полосы вдоль змейки
+  const c = document.createElement('canvas');
+  c.width = 16; c.height = 128;
+  const g2 = c.getContext('2d');
+  g2.fillStyle = 'rgba(255,80,60,0.35)';
+  g2.fillRect(0, 0, 16, 128);
+  const grad = g2.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, 'rgba(255,150,120,0)');
+  grad.addColorStop(0.45, 'rgba(255,190,160,0.85)');
+  grad.addColorStop(1, 'rgba(255,150,120,0)');
+  g2.fillStyle = grad;
+  g2.fillRect(0, 0, 16, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.repeat.set(1, 26);
+
   const mat = new THREE.MeshBasicMaterial({
-    color: 0xff4a3d, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false,
+    color: 0xff5a45, map: tex, transparent: true, opacity: 0.4,
+    depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending,
   });
   mat.name = 'Apt_underfloor';
   const mesh = new THREE.Mesh(geo, mat);
@@ -2943,13 +3020,13 @@ function initUI() {
   }
 
   // свет в изолированной комнате
+  const btnAllOff = document.getElementById('btn-all-off');
+  if (btnAllOff) btnAllOff.addEventListener('click', allLightsOff);
+
   const btnTrackRoom = document.getElementById('btn-room-track');
   const btnLedRoom = document.getElementById('btn-room-led');
   if (btnTrackRoom) btnTrackRoom.addEventListener('click', () => toggleRoomLight('track'));
   if (btnLedRoom) btnLedRoom.addEventListener('click', () => toggleRoomLight('led'));
-
-  const btnAllOff = document.getElementById('btn-all-off');
-  if (btnAllOff) btnAllOff.addEventListener('click', allLightsOff);
 
   // карточка устройства
   const sheetToggle = document.getElementById('sheet-toggle');
@@ -3019,6 +3096,7 @@ function initUI() {
     roomTemps: ROOM_TEMP,
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
+    enableSelection: (v) => { selectionEnabled = !!v; console.log('[select] mode', selectionEnabled ? 'on' : 'off'); return selectionEnabled; },
     listObjects: () => {
       const out = [];
       apartment.traverse((o) => {
@@ -3141,6 +3219,10 @@ function render() {
   updateDevices(dtSec, nowMs / 1000);
   updateCurtains(dtSec);
   updateCalloutPositions();
+  if (underfloor && underfloor.visible && underfloor.material.map) {
+    underfloor.material.map.offset.y = (nowMs / 1400) % 1;
+  }
+  if (sheetOpenFor) positionSheet();
   deviceClock = nowMs;
 
   if (activeTween) {

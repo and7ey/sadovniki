@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Квартира — 3D</title>
-  <link rel="stylesheet" href="./src/style.css?v=20" />
+  <link rel="stylesheet" href="./src/style.css?v=21" />
 </head>
 <body>
   <div id="app"></div>
@@ -39,6 +39,13 @@
       </section>
     </div>
 
+    <button id="btn-all-off" class="big-square all-off" title="Выключить весь свет в квартире" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 17h6M10 20h4" /><path d="M12 3.5a6 6 0 0 0-3.6 10.8c.5.4.8 1 .8 1.6v1.1h5.6v-1.1c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3.5Z" />
+        <path d="M4.5 4.5 19.5 19.5" />
+      </svg>
+    </button>
+
     <div class="room-actions" id="room-actions" hidden>
       <button id="btn-room-track" class="big-square" title="Трек — включить/выключить">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -52,12 +59,6 @@
       </button>
     </div>
 
-    <button id="btn-all-off" class="big-square all-off" title="Выключить весь свет в квартире" hidden>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 17h6M10 20h4" /><path d="M12 3.5a6 6 0 0 0-3.6 10.8c.5.4.8 1 .8 1.6v1.1h5.6v-1.1c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3.5Z" />
-        <path d="M4.5 4.5 19.5 19.5" />
-      </svg>
-    </button>
 
     <div id="callouts" class="callouts"></div>
 
@@ -116,6 +117,6 @@
       if (t) t.textContent = 'Ошибка: ' + m;
     });
   </script>
-  <script type="module" src="./src/main.js?v=81"></script>
+  <script type="module" src="./src/main.js?v=83"></script>
 </body>
 </html>
