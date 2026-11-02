@@ -3054,9 +3054,9 @@ function buildVacuum() {
   g.name = 'RoborockS7';
   g.position.set(VACUUM_HOME.x, 0, VACUUM_HOME.z);
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.45, metalness: 0.25 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf1f1ee, roughness: 0.42, metalness: 0.06 });
   bodyMat.name = 'Apt_vacuum_body';
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, roughness: 0.35, metalness: 0.5 });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xd4d5d2, roughness: 0.35, metalness: 0.25 });
   rimMat.name = 'Apt_vacuum_rim';
 
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.172, 0.082, 40), bodyMat);
