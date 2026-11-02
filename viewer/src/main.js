@@ -2599,25 +2599,53 @@ const ICON = {
   radiator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.4" y="6" width="17.2" height="12" rx="2"/><path d="M8 6v12M12 6v12M16 6v12"/></svg>',
 };
 
+const RADIATORS = {
+  'climate.thermostat_hall_1': { room: 'living', anchor: [2.90, 1.50, -2.86], current: 23.0 },
+  'climate.thermostat_hall_2': { room: 'living', anchor: [7.10, 1.50, -2.00], current: 23.2 },
+  'climate.thermostat_bedroom': { room: 'bedroom', anchor: [3.17, 1.50, 0.96], current: 22.5 },
+  'climate.thermostat_nursery': { room: 'kids', anchor: [-2.86, 1.50, -1.94], current: 22.4 },
+  'climate.thermostat_kitchen': { room: 'kitchen', anchor: [-3.12, 1.50, -2.09], current: 23.6 },
+};
+
+const radiatorDevices = new Map();
+
+function radiatorDevice(entity) {
+  let d = radiatorDevices.get(entity);
+  if (!d) {
+    const info = RADIATORS[entity] || { anchor: [0, 1.5, 0] };
+    d = {
+      kind: 'radiator', entity, mesh: null, overlay: null, mat: null, on: false,
+      anchor: new THREE.Vector3().fromArray(info.anchor),
+    };
+    radiatorDevices.set(entity, d);
+  }
+  return d;
+}
+
 const ROOM_CALLOUTS = {
   living: [
     { type: 'ac', entity: 'climate.konder_gostinaia_air_conditioner' },
+    { type: 'radiator', entity: 'climate.thermostat_hall_1' },
+    { type: 'radiator', entity: 'climate.thermostat_hall_2' },
     { type: 'tv', mesh: 'Sony_KD-065' },
     { type: 'curtain', entity: 'cover.curtain_driver2_hall' },
     { type: 'curtain', entity: 'cover.curtain_motor_hall' },
   ],
   bedroom: [
     { type: 'ac', entity: 'climate.konder_spalnia_air_conditioner' },
+    { type: 'radiator', entity: 'climate.thermostat_bedroom' },
     { type: 'curtain', entity: 'cover.curtain_driver_bedroom' },
   ],
   kitchen: [
     { type: 'ac', entity: 'climate.air_conditioner_as20hpl1hra' },
+    { type: 'radiator', entity: 'climate.thermostat_kitchen' },
     { type: 'tv', mesh: 'Sony_KD-055' },
   ],
   bath: [
     { type: 'floor', entity: 'switch.underfloor_heating_bathroom' },
   ],
   kids: [
+    { type: 'radiator', entity: 'climate.thermostat_nursery' },
     { type: 'curtain', entity: 'cover.curtain_driver_left' },
     { type: 'curtain', entity: 'cover.curtain_driver_right' },
   ],
@@ -2804,14 +2832,22 @@ function renderSheet() {
   const target = document.getElementById('sheet-target');
   const current = document.getElementById('sheet-current');
 
-  if (title) title.textContent = 'Кондиционер';
-  if (icon) icon.innerHTML = ICON.ac;
+  const isRad = dev.kind === 'radiator';
+  if (title) title.textContent = isRad ? 'Батарея' : 'Кондиционер';
+  if (icon) icon.innerHTML = isRad ? ICON.radiator : ICON.ac;
   if (toggle) toggle.setAttribute('aria-checked', String(!!st.on));
   if (target) target.textContent = st.target.toFixed(1).replace('.', ',') + '°';
   if (current) {
-    const room = info ? ROOMS[info.room]?.label : '';
-    const cur = info ? info.current : ROOM_TEMP[isolatedRoom] ?? 24;
-    current.textContent = (room ? room + ' ' : '') + cur.toFixed(1).replace('.', ',') + '°';
+    if (isRad) {
+      const rinfo = RADIATORS[dev.entity] || {};
+      const room = rinfo.room ? ROOMS[rinfo.room]?.label : '';
+      const cur = rinfo.current ?? 22;
+      current.textContent = (room ? room + ' ' : '') + cur.toFixed(1).replace('.', ',') + '°';
+    } else {
+      const room = info ? ROOMS[info.room]?.label : '';
+      const cur = info ? info.current : ROOM_TEMP[isolatedRoom] ?? 24;
+      current.textContent = (room ? room + ' ' : '') + cur.toFixed(1).replace('.', ',') + '°';
+    }
   }
 }
 
@@ -2838,6 +2874,9 @@ function calloutAnchor(type, ref) {
     const p = b.getCenter(new THREE.Vector3());
     return new THREE.Vector3(p.x, b.max.y - 0.18, p.z);
   }
+  if (type === 'radiator') {
+    return radiatorDevice(ref).anchor.clone();
+  }
   if (type === 'floor') {
     const r = ROOMS.bath;
     if (!r) return null;
@@ -2859,6 +2898,11 @@ function calloutState(item) {
     if (!dev) return { on: false, label: '—' };
     const st = deviceState(dev);
     return { on: st.on, label: st.on ? 'охлаждает' : 'выкл' };
+  }
+  if (item.type === 'radiator') {
+    const dev = radiatorDevice(item.entity);
+    const st = deviceState(dev);
+    return { on: st.on, label: st.on ? 'греет' : 'выкл' };
   }
   if (item.type === 'tv') {
     const dev = devices.find((d) => d.mesh.name === item.mesh);
@@ -2896,6 +2940,8 @@ function buildCallouts() {
       } else if (item.type === 'ac') {
         const dev = devices.find((d) => d.entity === item.entity);
         if (dev) openDeviceSheet(dev);
+      } else if (item.type === 'radiator') {
+        openDeviceSheet(radiatorDevice(item.entity));
       } else if (item.type === 'tv') {
         const dev = devices.find((d) => d.mesh.name === item.mesh);
         if (dev) setDeviceOn(dev, !dev.on);
@@ -2903,9 +2949,14 @@ function buildCallouts() {
       updateCalloutPositions();
     });
     host.appendChild(el);
-    calloutItems.push({ anchor, el, item, dev: item.type === 'ac' || item.type === 'tv'
-      ? devices.find((d) => (item.entity ? d.entity === item.entity : d.mesh.name === item.mesh))
-      : null, label: item.type + ':' + (item.entity || item.mesh) });
+    calloutItems.push({
+      anchor, el, item,
+      dev: item.type === 'radiator' ? radiatorDevice(item.entity)
+        : (item.type === 'ac' || item.type === 'tv'
+          ? devices.find((d) => (item.entity ? d.entity === item.entity : d.mesh.name === item.mesh))
+          : null),
+      label: item.type + ':' + (item.entity || item.mesh),
+    });
   }
   updateCalloutPositions();
 }
@@ -3096,6 +3147,15 @@ function initUI() {
     roomTemps: ROOM_TEMP,
     setRoomTemp: (room, v) => { ROOM_TEMP[room] = v; updateClimateCard(); },
     callouts: () => calloutItems.map((c) => c.label),
+    setRadiatorAnchor: (entity, xyz) => {
+      const info = RADIATORS[entity];
+      if (!info) return null;
+      info.anchor = xyz.slice(0, 3);
+      radiatorDevices.delete(entity);
+      buildCallouts();
+      console.log('[radiator]', entity, 'anchor', xyz);
+      return info.anchor;
+    },
     enableSelection: (v) => { selectionEnabled = !!v; console.log('[select] mode', selectionEnabled ? 'on' : 'off'); return selectionEnabled; },
     listObjects: () => {
       const out = [];
