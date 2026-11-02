@@ -2289,7 +2289,8 @@ function updateCurtains(dt) {
 /* ------------------------------------------------------------------ *
  *  Double click a room: isolate it, double click again to come back
  * ------------------------------------------------------------------ */
-const DEFAULT_VIEW = { pos: [10.4, 29.3, 16.0], target: [0.33, 0.9, 0.15] };
+// со стороны гостиной, 56° к горизонту, кадр плотный
+const DEFAULT_VIEW = { pos: [1.8, 19.4, -11.9], target: [-0.26, 0.78, 0.55] };
 
 const ROOMS = {
   kids: {
