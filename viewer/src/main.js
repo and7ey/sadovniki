@@ -833,30 +833,22 @@ function haEntity(kind, room) {
   return (row && row[kind]) || null;
 }
 
-const LED_INTENSITY = 4;
+const LED_INTENSITY = 5;      // тёплая лента / подсветка у зеркала
 const TRACK_DEFAULT = 10;
 const CEILING_Y = 3.0;
 
-// Every light costs frame time: a scene with 29 spot lights renders at ~13 fps
-// on this machine, 16 stay at 60.  So both coves and tracks share a fixed pool
-// of lights that is re-aimed at the lamps of the groups that are switched on.
-const LED_POOL = 6;
-const SPOT_POOL = 8;
-// Every room keeps its own slice of the pool for the whole session.  A lamp is
-// never re-aimed because another room was switched on or off, so the light in
-// the living room no longer moves when the hall light is toggled.
-const LED_ROOM_SLOTS = { living: 1, kids: 1, kitchen: 1, hall: 1, bath: 1, wc: 1 };
-const LED_ROOM_INTENSITY = { living: 6, kitchen: 6, bath: 6, kids: 4, hall: 4, wc: 4 };
-const SPOT_ROOM_SLOTS = { living: 2, kids: 1, corridor: 1, kitchen: 1, bath: 1, wc: 1, balcony: 1 };
-// The GPU only has ~16 texture units and every shadow-casting light takes one:
-// 6 coves + 6 track lamps = 12 fit next to the material maps, 15+ makes the
-// whole scene disappear.  So the pendant lights no longer cast shadows.
-
-const ledPool = [];
-const spotPool = [];
-const ledPlan = [];          // fixed { room, p, intensity } per pool light
-const spotPlan = [];         // fixed { room, p } per pool light
-const trackFixtures = {};   // room -> [{ x, z, y, intensity, mesh }]
+// Один широкий потолочный светильник на комнату.  Споты по каждой лампочке
+// трека рисовали пятна и требовали отдельную карту теней: на iPad их число
+// упиралось в лимит текстурных юнитов, и сцена переставала рисоваться вовсе.
+// Один источник на комнату даёт ровный свет и укладывается в безопасный пул.
+const ROOM_LIGHT_ROOMS = ['living', 'kids', 'kitchen', 'corridor', 'hall', 'bath', 'wc', 'balcony'];
+// ключ комнаты в ROOMS для центра светильника
+const ROOM_BOUNDS = {
+  living: 'living', kids: 'kids', kitchen: 'kitchen', corridor: 'hall',
+  hall: 'bedroom', bath: 'bath', wc: 'wc', balcony: 'balcony',
+};
+const roomLights = {};       // room -> { spot, center, cove }
+const trackFixtures = {};    // room -> [{ x, z, y, intensity, mesh }]
 const trackGroups = {};     // room -> THREE.Group with rails + lamp heads
 const trackIntensity = { living: TRACK_DEFAULT, kids: TRACK_DEFAULT, corridor: TRACK_DEFAULT, kitchen: TRACK_DEFAULT };
 const lightState = {
@@ -919,129 +911,83 @@ function trackPoints(track) {
   return pts;
 }
 
-// Pick `count` real lamp positions spread over the room's runs: one per slice of
-// the list, always the point closest to the slice centre.  Never interpolated,
-// so the light always sits on an actual cove / track head.
-function pickRoomPoints(pts, count) {
-  const out = [];
-  if (!pts.length) return out;
-  const n = Math.max(1, count);
-  for (let k = 0; k < n; k++) {
-    const from = Math.floor((k * pts.length) / n);
-    const to = Math.max(from + 1, Math.floor(((k + 1) * pts.length) / n));
-    const chunk = pts.slice(from, to);
-    let cx = 0, cz = 0;
-    for (const p of chunk) { cx += p[0]; cz += p[2]; }
-    cx /= chunk.length; cz /= chunk.length;
-    let best = chunk[0], bestD = Infinity;
-    for (const p of chunk) {
-      const dx = p[0] - cx, dz = p[2] - cz;
-      const d = dx * dx + dz * dz;
-      if (d < bestD) { bestD = d; best = p; }
-    }
-    out.push(best);
+// точка ленты/капсюля, ближайшая к центру комнаты: из неё светит «режим ленты»
+function covePoint(room, center) {
+  const runs = LED_RUNS[room];
+  if (!runs) return null;
+  let best = null, bestD = Infinity;
+  for (const p of pointsOnRuns(runs)) {
+    const dx = p[0] - center[0], dz = p[2] - center[2];
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = p; }
   }
-  return out;
+  return best;
 }
 
-// the plan is built once, after the track fixtures exist
-function buildLightPlans() {
-  ledPlan.length = 0;
-  for (const [room, count] of Object.entries(LED_ROOM_SLOTS)) {
-    const runs = LED_RUNS[room];
-    if (!runs) continue;
-    for (const p of pickRoomPoints(pointsOnRuns(runs), count)) {
-      ledPlan.push({ room, p, intensity: LED_ROOM_INTENSITY[room] ?? LED_INTENSITY });
-    }
-  }
-  spotPlan.length = 0;
-  for (const [room, count] of Object.entries(SPOT_ROOM_SLOTS)) {
-    const fixtures = (trackFixtures[room] || []).filter(Boolean).map((f) => [f.x, f.y, f.z]);
-    for (const p of pickRoomPoints(fixtures, count)) spotPlan.push({ room, p });
-  }
-  console.log('[light] plan', ledPlan.length + ' led,', spotPlan.length + ' spot');
-}
-
-// switching a room only changes the intensity of lamps it owns
-function refreshLeds() {
+// Каждая комната живёт в своём свете: переключение одной комнаты не меняет
+// положение и яркость светильников у соседей.
+function refreshRoomLights() {
   let used = 0;
-  ledPool.forEach((light, i) => {
-    const item = ledPlan[i];
-    const on = !!item && !!lightState['led' + cap(item.room)];
-    light.intensity = on ? item.intensity : 0;
-    if (on) used++;
-  });
+  for (const room of ROOM_LIGHT_ROOMS) {
+    const rl = roomLights[room];
+    if (!rl) continue;
+    const trackOn = !!lightState['track' + cap(room)];
+    const ledOn = !!lightState['led' + cap(room)];
+    if (!trackOn && !ledOn) {
+      rl.light.intensity = 0;
+      continue;
+    }
+    used++;
+    const at = trackOn ? rl.center : rl.cove;
+    rl.light.position.set(at[0], at[1], at[2]);
+    const base = trackIntensity[room] ?? TRACK_DEFAULT;
+    if (trackOn && ledOn) {
+      rl.light.color.setHex(0xffe6c2);
+      rl.light.intensity = base * 1.3 + LED_INTENSITY * 1.2;
+    } else if (trackOn) {
+      rl.light.color.setHex(0xfff0d8);
+      rl.light.intensity = base * 1.3;
+    } else {
+      rl.light.color.setHex(0xffc27a);
+      rl.light.intensity = LED_INTENSITY * 1.8;
+    }
+    rl.light.shadow.needsUpdate = true;
+  }
   return used;
 }
 
-function refreshTracks() {
-  let used = 0;
-  spotPool.forEach((spot, i) => {
-    const item = spotPlan[i];
-    const on = !!item && !!lightState['track' + cap(item.room)];
-    spot.intensity = on ? (trackIntensity[item.room] ?? TRACK_DEFAULT) : 0;
-    if (on) used++;
-  });
-  return used;
-}
+function refreshLeds() { return refreshRoomLights(); }
+function refreshTracks() { return refreshRoomLights(); }
 
 function buildLightPools() {
-  // на телефоне карты теней мельче, но состав пула тот же, иначе комнаты
-  // начали бы «делить» источники и свет прыгал бы между ними
-  for (let i = 0; i < LED_POOL; i++) {
-    // slower falloff + more sources per run: the cove reads as one even wash
-    // instead of a row of separate pools
-    const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
+  for (const room of ROOM_LIGHT_ROOMS) {
+    const bounds = ROOMS[ROOM_BOUNDS[room]];
+    const center = [
+      (bounds.x[0] + bounds.x[1]) / 2,
+      2.62,
+      (bounds.z[0] + bounds.z[1]) / 2,
+    ];
+    const cove = covePoint(room, center);
+    // точечный источник светит во все стороны: пол, стены и мебель получают
+    // ровный свет без пятен, а тень стен держит свет внутри комнаты
+    const light = new THREE.PointLight(0xfff0d8, 0, 16, 1.5);
     light.castShadow = true;
     light.shadow.mapSize.set(LOW_POWER ? 128 : 256, LOW_POWER ? 128 : 256);
-    light.shadow.camera.near = 0.06;
-    light.shadow.camera.far = 8;
-    light.shadow.bias = -0.004;
+    light.shadow.camera.near = 0.12;
+    light.shadow.camera.far = 12;
+    light.shadow.bias = -0.005;
     light.shadow.normalBias = 0.03;
     light.shadow.autoUpdate = false;
     light.shadow.needsUpdate = true;
+    light.position.set(center[0], center[1], center[2]);
     scene.add(light);
-    ledPool.push(light);
+    roomLights[room] = {
+      light,
+      center,
+      cove: cove ? [cove[0], 2.72, cove[2]] : center.slice(),
+    };
   }
-  for (let i = 0; i < SPOT_POOL; i++) {
-    // последний спот — балкон: он за стеклом, тень ему не нужна, а
-    // узкий конус не даёт свету уйти через стену на кухню
-    const balcony = i >= SPOT_POOL - 1;
-    const spot = balcony
-      ? new THREE.SpotLight(0xfff0d8, 0, 9, 0.85, 0.9, 1.7)
-      : new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
-    spot.castShadow = !balcony;
-    if (spot.castShadow) {
-      spot.shadow.mapSize.set(LOW_POWER ? 256 : 512, LOW_POWER ? 256 : 512);
-      spot.shadow.camera.near = 0.08;
-      spot.shadow.camera.far = 8;
-      spot.shadow.bias = -0.0025;
-      spot.shadow.normalBias = 0.03;
-      spot.shadow.autoUpdate = false;
-      spot.shadow.needsUpdate = true;
-    }
-    scene.add(spot, spot.target);
-    spotPool.push(spot);
-  }
-
-  // ставки на постоянные места: комнаты больше не отбирают лампы друг у друга
-  ledPlan.forEach((item, i) => {
-    const light = ledPool[i];
-    if (!light) return;
-    light.position.set(item.p[0], item.p[1], item.p[2]);
-    light.shadow.needsUpdate = true;
-  });
-  spotPlan.forEach((item, i) => {
-    const spot = spotPool[i];
-    if (!spot) return;
-    spot.position.set(item.p[0], item.p[1], item.p[2]);
-    spot.target.position.set(item.p[0], 0, item.p[2]);
-    spot.target.updateMatrixWorld();
-    if (spot.castShadow) spot.shadow.needsUpdate = true;
-  });
-
-  console.log('[light] pool led', ledPool.length, 'spot', spotPool.length,
-    'shadow', ledPool.length + spotPool.filter((s) => s.castShadow).length);
+  console.log('[light] rooms', ROOM_LIGHT_ROOMS.length, '- one shadowed point light each');
 }
 
 /* ------------------------------------------------------------------ *
@@ -1581,7 +1527,6 @@ loader.load(
     setupMirrors();
     setupLamps();
     buildTracks();
-    buildLightPlans();
     buildLightPools();
     buildCeiling();
     setupDevices();
