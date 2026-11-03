@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Квартира — 3D</title>
+
+  <!-- запуск в полный экран с домашнего экрана iPad/iPhone -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Квартира" />
+  <meta name="theme-color" content="#12151a" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./public/icons/apple-touch-icon.png" />
+
+  <link rel="stylesheet" href="./src/style.css?v=25" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="hud">
+    <div class="top-left">
+      <section class="weather" id="weather" data-entity="weather.home">
+        <div class="weather-icon" id="weather-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.6 34h20a6.6 6.6 0 0 0 .5-13.17 9.7 9.7 0 0 0-18.5-1.1A6.9 6.9 0 0 0 13.6 34Z" />
+          </svg>
+        </div>
+        <div class="weather-body">
+          <div class="weather-temp" id="weather-temp">8 °C</div>
+          <div class="weather-state" id="weather-state">Облачно</div>
+        </div>
+      </section>
+
+      <section class="weather climate" id="climate-card">
+        <div class="weather-icon" id="climate-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M24 12a4 4 0 0 1 4 4v13a6 6 0 1 1-8 0V16a4 4 0 0 1 4-4Z" />
+            <path d="M24 22v9" />
+          </svg>
+        </div>
+        <div class="weather-body">
+          <div class="weather-temp" id="climate-temp">24°</div>
+          <div class="weather-state" id="climate-state">в квартире</div>
+        </div>
+      </section>
+    </div>
+
+    <button id="btn-all-off" class="big-square all-off" title="Выключить весь свет в квартире" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M20.84 22.73L18.09 20C18.06 20 18.03 20 18 20H16.83C16.94 19.68 17 19.34 17 19V18.89L14.75 16.64C14.57 16.86 14.31 17 14 17H10C9.45 17 9 16.55 9 16V14C7.4 12.8 6.74 10.84 7.12 9L5.5 7.4C5.18 8.23 5 9.11 5 10C5 11.83 5.72 13.58 7 14.88V17H5C4.45 17 4 16.55 4 16V14.45C2.86 13.79 2.12 12.62 2 11.31C1.85 9.27 3.25 7.5 5.2 7.09L1.11 3L2.39 1.73L22.11 21.46L20.84 22.73M15 6C13.22 4.67 10.86 4.72 9.13 5.93L16.08 12.88C17.63 10.67 17.17 7.63 15 6M19.79 16.59C19.91 16.42 20 16.22 20 16V14.45C21.91 13.34 22.57 10.9 21.46 9C20.8 7.85 19.63 7.11 18.32 7C18.77 7.94 19 8.96 19 10C19 11.57 18.47 13.09 17.5 14.05L19.79 16.59Z" />
+      </svg>
+    </button>
+
+    <div class="room-actions" id="room-actions" hidden>
+      <button id="btn-room-track" class="big-square" title="Трек — включить/выключить">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M6,1V3H9V6.4L4.11,4.38L1.43,10.84L6.97,13.14L11.94,16.82L13.79,17.59L17.62,8.35L15.77,7.58L11,6.87V3H14V1H6M21.81,6.29L19.5,7.25L20.26,9.1L22.57,8.14L21.81,6.29M19.78,13.57L19,15.42L21.79,16.57L22.55,14.72L19.78,13.57M16.19,18.93L14.34,19.69L15.3,22L17.15,21.23L16.19,18.93Z" />
+        </svg>
+      </button>
+      <button id="btn-room-led" class="big-square" title="Лента — включить/выключить">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M2.95 3L2 6.91L19.34 11.25L20.29 7.34L2.95 3M6.09 6.89L4.16 6.41L4.64 4.46L6.57 4.94L6.09 6.89M9.94 7.86L8 7.38L8.5 5.42L10.42 5.91L9.94 7.86M13.8 8.82L11.87 8.34L12.35 6.39L14.27 6.87L13.8 8.82M17.65 9.79L15.72 9.31L16.2 7.35L18.13 7.84L17.65 9.79M4.66 12.75L3.71 16.66L21.05 21L22 17.1L4.66 12.75M7.8 16.65L5.88 16.16L6.35 14.21L8.28 14.69L7.8 16.65M11.65 17.61L9.73 17.13L10.2 15.18L12.13 15.66L11.65 17.61M15.5 18.58L13.58 18.09L14.06 16.14L16 16.62L15.5 18.58M19.36 19.54L17.43 19.06L17.91 17.11L19.84 17.59L19.36 19.54M6.25 12.11L11 10.2L17.75 11.89L13 13.8L6.25 12.11Z" />
+        </svg>
+      </button>
+    </div>
+
+
+    <div id="callouts" class="callouts"></div>
+
+    <div class="side-stack">
+      <button id="btn-rotate" title="Автовращение"></button>
+      <button id="btn-walls" title="Показать/скрыть стены"></button>
+      <button id="btn-light" title="Освещение: день / вечер / ночь"></button>
+      <button id="btn-view" title="Вид сверху / вернуть камеру"></button>
+      <button id="btn-home" class="home-btn" title="Вернуть общий вид квартиры" aria-label="Общий вид">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.6" />
+          <path d="M15.6 8.4 13.3 13.3 8.4 15.6 10.7 10.7Z" fill="currentColor" stroke="none" />
+          <path d="M12 2.6v1.8M12 19.6v1.8M2.6 12h1.8M19.6 12h1.8" />
+        </svg>
+      </button>
+    </div>
+
+    <div id="device-sheet" class="sheet" hidden>
+      <div class="sheet-head">
+        <span class="sheet-icon" id="sheet-icon"></span>
+        <span class="sheet-title" id="sheet-title">Кондиционер</span>
+        <button class="switch" id="sheet-toggle" role="switch" aria-checked="false"><span></span></button>
+      </div>
+      <div class="sheet-body">
+        <button class="round" id="sheet-minus" aria-label="Меньше">−</button>
+        <div class="sheet-value">
+          <div class="sheet-target" id="sheet-target">24,5°</div>
+          <div class="sheet-current" id="sheet-current">спальня 26,5°</div>
+        </div>
+        <button class="round" id="sheet-plus" aria-label="Больше">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="gl-lost" class="gl-lost" hidden>
+    <p>Не хватило памяти видеокарты для этой сцены.</p>
+    <button type="button" onclick="location.reload()">Перезагрузить</button>
+  </div>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-ring"></div>
+      <div class="loader-text">Загружаем квартиру… <span id="progress">0%</span></div>
+    </div>
+  </div>
+
+  <script>
+    // ошибки, которые рушат загрузку, показываем прямо в лоадере
+    window.addEventListener('error', (e) => {
+      const t = document.querySelector('.loader-text');
+      if (t) t.textContent = 'Ошибка: ' + (e.message || 'сбой загрузки') + ' @ ' + (e.filename || '').split('/').slice(-2).join('/') + ':' + (e.lineno || 0);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const t = document.querySelector('.loader-text');
+      const m = e.reason && e.reason.message ? e.reason.message : 'сбой загрузки';
+      if (t) t.textContent = 'Ошибка: ' + m;
+    });
+  </script>
+  <script type="module" src="./src/main.js?v=104"></script>
+  <script src="./live.config.js?v=3"></script>
+  <script type="module" src="./src/live.js?v=12"></script>
+</body>
+</html>
