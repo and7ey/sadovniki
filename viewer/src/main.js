@@ -2426,6 +2426,7 @@ function goHome() {
   viewMode = 'iso';
   viewSaved = null;
   updateViewButton();
+  updateRoomChrome();
   flyToArc(new THREE.Vector3().fromArray(DEFAULT_VIEW.pos), new THREE.Vector3().fromArray(DEFAULT_VIEW.target), 950);
   console.log('[camera] home');
 }
@@ -2746,7 +2747,13 @@ function updateRoomChrome() {
   const allOff = document.getElementById('btn-all-off');
 
   if (topLeft) topLeft.classList.toggle('zoomed', zoomed);
-  if (actions) actions.hidden = !zoomed;
+  // на общем виде — ровно одна кнопка «выключить весь свет»
+  if (actions) {
+    actions.hidden = !zoomed;
+    if (!zoomed) {
+      actions.querySelectorAll('button').forEach((b) => { b.hidden = true; });
+    }
+  }
   if (allOff) allOff.hidden = zoomed;
 
   const btnT = document.getElementById('btn-room-track');
@@ -2771,6 +2778,7 @@ function updateRoomChrome() {
 
 /* --- карточка устройства --- */
 let selectionEnabled = false;
+let chromeIsolated = null;
 let sheetOpenFor = null;
 const DEVICE_STATE = new Map();
 
@@ -3391,6 +3399,10 @@ function render() {
   }
   if (sheetOpenFor) positionSheet();
   updateVacuum(nowMs / 1000);
+  if (chromeIsolated !== isolatedRoom) {
+    chromeIsolated = isolatedRoom;
+    updateRoomChrome();
+  }
   deviceClock = nowMs;
 
   if (activeTween) {
