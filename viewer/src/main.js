@@ -3375,16 +3375,12 @@ window.addEventListener('message', (event) => {
 /* ------------------------------------------------------------------ *
  *  Loop
  * ------------------------------------------------------------------ */
-const clock = new THREE.Clock();
-
 function easeInOut(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 function render() {
   requestAnimationFrame(render);
-  const dt = clock.getDelta();
-
   const nowMs = performance.now();
   const dtSec = Math.min(0.1, (nowMs - (deviceClock || nowMs)) / 1000);
   updateDevices(dtSec, nowMs / 1000);
@@ -3416,7 +3412,7 @@ function render() {
   }
 
   if (wallMaterials.length) {
-    const k = Math.min(1, dt * 9);
+    const k = Math.min(1, dtSec * 9);
     for (const mat of wallMaterials) {
       if (mat.opacity === wallTargetOpacity && (wallTargetOpacity === 1 || mat.transparent)) {
         continue;

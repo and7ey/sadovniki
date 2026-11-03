@@ -224,6 +224,7 @@ function stateKey(kind, room) {
 }
 
 function applyStates(viewer, states) {
+  if (!viewer || !viewer.lightState || !viewer.setLight) return;
   for (const [kind, room, entity] of SYNC_KEYS) {
     const st = stateOf(states, entity);
     if (st === undefined) continue;
@@ -238,7 +239,8 @@ function waitViewer() {
   return new Promise((resolve) => {
     let n = 0;
     const tick = () => {
-      if (window.__viewer) return resolve(window.__viewer);
+      const v = window.__viewer;
+      if (v && v.lightState && v.setLight) return resolve(v);
       if (++n > 600) return resolve(null);   // ~2 минуты
       setTimeout(tick, 200);
     };
@@ -286,7 +288,6 @@ function fitSimilarity(pairs) {
   return { scale, rot: ang*180/Math.PI, ox, oz };
 }
 
-window.__viewer = window.__viewer || {};
 function attachCalib(viewer) {
   viewer.calibPoint = (wx, wz) => {
     const p = window.__live && window.__live.vacuumPos;
