@@ -841,13 +841,21 @@ const CEILING_Y = 3.0;
 // on this machine, 16 stay at 60.  So both coves and tracks share a fixed pool
 // of lights that is re-aimed at the lamps of the groups that are switched on.
 const LED_POOL = 6;
-const SPOT_POOL = 6;
+const SPOT_POOL = 8;
+// Every room keeps its own slice of the pool for the whole session.  A lamp is
+// never re-aimed because another room was switched on or off, so the light in
+// the living room no longer moves when the hall light is toggled.
+const LED_ROOM_SLOTS = { living: 1, kids: 1, kitchen: 1, hall: 1, bath: 1, wc: 1 };
+const LED_ROOM_INTENSITY = { living: 6, kitchen: 6, bath: 6, kids: 4, hall: 4, wc: 4 };
+const SPOT_ROOM_SLOTS = { living: 2, kids: 1, corridor: 1, kitchen: 1, bath: 1, wc: 1, balcony: 1 };
 // The GPU only has ~16 texture units and every shadow-casting light takes one:
 // 6 coves + 6 track lamps = 12 fit next to the material maps, 15+ makes the
 // whole scene disappear.  So the pendant lights no longer cast shadows.
 
 const ledPool = [];
 const spotPool = [];
+const ledPlan = [];          // fixed { room, p, intensity } per pool light
+const spotPlan = [];         // fixed { room, p } per pool light
 const trackFixtures = {};   // room -> [{ x, z, y, intensity, mesh }]
 const trackGroups = {};     // room -> THREE.Group with rails + lamp heads
 const trackIntensity = { living: TRACK_DEFAULT, kids: TRACK_DEFAULT, corridor: TRACK_DEFAULT, kitchen: TRACK_DEFAULT };
@@ -911,62 +919,76 @@ function trackPoints(track) {
   return pts;
 }
 
-// evenly thin a list down to `size` entries
-function samplePoints(pts, size) {
-  if (pts.length <= size) return pts.slice();
-  const step = pts.length / size;
+// Pick `count` real lamp positions spread over the room's runs: one per slice of
+// the list, always the point closest to the slice centre.  Never interpolated,
+// so the light always sits on an actual cove / track head.
+function pickRoomPoints(pts, count) {
   const out = [];
-  for (let i = 0; i < size; i++) out.push(pts[Math.floor(i * step)]);
+  if (!pts.length) return out;
+  const n = Math.max(1, count);
+  for (let k = 0; k < n; k++) {
+    const from = Math.floor((k * pts.length) / n);
+    const to = Math.max(from + 1, Math.floor(((k + 1) * pts.length) / n));
+    const chunk = pts.slice(from, to);
+    let cx = 0, cz = 0;
+    for (const p of chunk) { cx += p[0]; cz += p[2]; }
+    cx /= chunk.length; cz /= chunk.length;
+    let best = chunk[0], bestD = Infinity;
+    for (const p of chunk) {
+      const dx = p[0] - cx, dz = p[2] - cz;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    out.push(best);
+  }
   return out;
 }
 
-function refreshLeds() {
-  const pts = [];
-  for (const room of Object.keys(LED_RUNS)) {
-    if (!lightState['led' + cap(room)]) continue;
-    pts.push(...pointsOnRuns(LED_RUNS[room]));
-  }
-  const picked = samplePoints(pts, ledPool.length);
-  ledPool.forEach((light, i) => {
-    const p = picked[i];
-    if (!p) {
-      light.intensity = 0;
-      return;
+// the plan is built once, after the track fixtures exist
+function buildLightPlans() {
+  ledPlan.length = 0;
+  for (const [room, count] of Object.entries(LED_ROOM_SLOTS)) {
+    const runs = LED_RUNS[room];
+    if (!runs) continue;
+    for (const p of pickRoomPoints(pointsOnRuns(runs), count)) {
+      ledPlan.push({ room, p, intensity: LED_ROOM_INTENSITY[room] ?? LED_INTENSITY });
     }
-    light.position.set(p[0], p[1], p[2]);
-    light.intensity = LED_INTENSITY;
-    if (light.castShadow) light.shadow.needsUpdate = true;
+  }
+  spotPlan.length = 0;
+  for (const [room, count] of Object.entries(SPOT_ROOM_SLOTS)) {
+    const fixtures = (trackFixtures[room] || []).filter(Boolean).map((f) => [f.x, f.y, f.z]);
+    for (const p of pickRoomPoints(fixtures, count)) spotPlan.push({ room, p });
+  }
+  console.log('[light] plan', ledPlan.length + ' led,', spotPlan.length + ' spot');
+}
+
+// switching a room only changes the intensity of lamps it owns
+function refreshLeds() {
+  let used = 0;
+  ledPool.forEach((light, i) => {
+    const item = ledPlan[i];
+    const on = !!item && !!lightState['led' + cap(item.room)];
+    light.intensity = on ? item.intensity : 0;
+    if (on) used++;
   });
-  return picked.length;
+  return used;
 }
 
 function refreshTracks() {
-  const pts = [];
-  for (const room of Object.keys(trackFixtures)) {
-    if (!lightState['track' + cap(room)]) continue;
-    pts.push(...trackFixtures[room].filter(Boolean));
-  }
-  const picked = samplePoints(pts, spotPool.length);
+  let used = 0;
   spotPool.forEach((spot, i) => {
-    const f = picked[i];
-    if (!f) {
-      spot.intensity = 0;
-      return;
-    }
-    spot.position.set(f.x, f.y, f.z);
-    spot.target.position.set(f.x, 0, f.z);
-    spot.target.updateMatrixWorld();
-    spot.intensity = f.intensity;
-    if (spot.castShadow) spot.shadow.needsUpdate = true;
+    const item = spotPlan[i];
+    const on = !!item && !!lightState['track' + cap(item.room)];
+    spot.intensity = on ? (trackIntensity[item.room] ?? TRACK_DEFAULT) : 0;
+    if (on) used++;
   });
-  return picked.length;
+  return used;
 }
 
 function buildLightPools() {
-  // на телефоне пул меньше и без теней, но свет всё равно работает
-  const ledCount = LOW_POWER ? 3 : LED_POOL;
-  const spotCount = LOW_POWER ? 3 : SPOT_POOL;
-  for (let i = 0; i < ledCount; i++) {
+  // на телефоне карты теней мельче, но состав пула тот же, иначе комнаты
+  // начали бы «делить» источники и свет прыгал бы между ними
+  for (let i = 0; i < LED_POOL; i++) {
     // slower falloff + more sources per run: the cove reads as one even wash
     // instead of a row of separate pools
     const light = new THREE.PointLight(0xffc27a, 0, 9, 1.5);
@@ -977,26 +999,49 @@ function buildLightPools() {
     light.shadow.bias = -0.004;
     light.shadow.normalBias = 0.03;
     light.shadow.autoUpdate = false;
-    if (light.castShadow) light.shadow.needsUpdate = true;
+    light.shadow.needsUpdate = true;
     scene.add(light);
     ledPool.push(light);
   }
-  for (let i = 0; i < spotCount; i++) {
-    // GU10, 640 lm
-    // open lamp: nearly a downward hemisphere, fully soft edge, slow falloff
-    const spot = new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
-    spot.castShadow = true;
-    spot.shadow.mapSize.set(LOW_POWER ? 256 : 512, LOW_POWER ? 256 : 512);
-    spot.shadow.camera.near = 0.08;
-    spot.shadow.camera.far = 8;
-    spot.shadow.bias = -0.0025;
-    spot.shadow.normalBias = 0.03;
-    spot.shadow.autoUpdate = false;
-    if (spot.castShadow) spot.shadow.needsUpdate = true;
+  for (let i = 0; i < SPOT_POOL; i++) {
+    // последний спот — балкон: он за стеклом, тень ему не нужна, а
+    // узкий конус не даёт свету уйти через стену на кухню
+    const balcony = i >= SPOT_POOL - 1;
+    const spot = balcony
+      ? new THREE.SpotLight(0xfff0d8, 0, 9, 0.85, 0.9, 1.7)
+      : new THREE.SpotLight(0xfff0d8, 0, 10, 1.5, 1.0, 1.7);
+    spot.castShadow = !balcony;
+    if (spot.castShadow) {
+      spot.shadow.mapSize.set(LOW_POWER ? 256 : 512, LOW_POWER ? 256 : 512);
+      spot.shadow.camera.near = 0.08;
+      spot.shadow.camera.far = 8;
+      spot.shadow.bias = -0.0025;
+      spot.shadow.normalBias = 0.03;
+      spot.shadow.autoUpdate = false;
+      spot.shadow.needsUpdate = true;
+    }
     scene.add(spot, spot.target);
     spotPool.push(spot);
   }
-  console.log('[light] pool led', ledPool.length, 'spot', spotPool.length);
+
+  // ставки на постоянные места: комнаты больше не отбирают лампы друг у друга
+  ledPlan.forEach((item, i) => {
+    const light = ledPool[i];
+    if (!light) return;
+    light.position.set(item.p[0], item.p[1], item.p[2]);
+    light.shadow.needsUpdate = true;
+  });
+  spotPlan.forEach((item, i) => {
+    const spot = spotPool[i];
+    if (!spot) return;
+    spot.position.set(item.p[0], item.p[1], item.p[2]);
+    spot.target.position.set(item.p[0], 0, item.p[2]);
+    spot.target.updateMatrixWorld();
+    if (spot.castShadow) spot.shadow.needsUpdate = true;
+  });
+
+  console.log('[light] pool led', ledPool.length, 'spot', spotPool.length,
+    'shadow', ledPool.length + spotPool.filter((s) => s.castShadow).length);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1535,8 +1580,9 @@ loader.load(
     mergeHallMirrors();
     setupMirrors();
     setupLamps();
-    buildLightPools();
     buildTracks();
+    buildLightPlans();
+    buildLightPools();
     buildCeiling();
     setupDevices();
     setupCurtains();
